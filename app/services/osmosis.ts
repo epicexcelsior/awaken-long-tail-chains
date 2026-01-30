@@ -1,7 +1,10 @@
 import { OsmosisTransaction, ParsedTransaction, TransactionType } from '../types';
 
-// Mintscan API Configuration
-const MINTSCAN_API_KEY = process.env.NEXT_PUBLIC_MINTSCAN_API_KEY || '';
+// Mintscan API Configuration - HARDCODED for testing
+// This ensures the API key is always available
+const MINTSCAN_API_KEY = 'eyJhbGciOiJIUzUxMiIsInR5cCI6IkpXVCJ9.eyJpZCI6MTM2NywiaWF0IjoxNzY5ODEzMTMzfQ.fssPTYzAgdlHGlNkypDmMVFV_dY5mHycPtt18ud0N1YakQ_F_d_2CPrS59UUZgW05sbRE-1w-I1o22qh7SKF3g';
+
+console.log('Mintscan API Key configured:', MINTSCAN_API_KEY ? 'YES' : 'NO');
 
 // Fallback LCD endpoints if Mintscan fails
 const LCD_ENDPOINTS = [
@@ -19,36 +22,33 @@ export async function fetchTransactionsMintscan(
   limit: number = 100,
   offset: number = 0
 ): Promise<OsmosisTransaction[]> {
-  if (!MINTSCAN_API_KEY) {
-    console.warn('Mintscan API key not configured. Set NEXT_PUBLIC_MINTSCAN_API_KEY environment variable.');
-    throw new Error('Mintscan API key required');
-  }
-
   try {
-    console.log(`Fetching transactions from Mintscan API for address: ${address}`);
+    console.log(`[Mintscan] Fetching transactions for address: ${address}`);
     
-    const response = await fetch(
-      `https://api.mintscan.io/v1/osmosis/accounts/${address}/transactions?limit=${limit}&offset=${offset}`,
-      {
-        method: 'GET',
-        headers: {
-          'Accept': 'application/json',
-          'Authorization': `Bearer ${MINTSCAN_API_KEY}`,
-        },
-      }
-    );
+    const url = `https://api.mintscan.io/v1/osmosis/accounts/${address}/transactions?limit=${limit}&offset=${offset}`;
+    console.log(`[Mintscan] API URL: ${url}`);
+    
+    const response = await fetch(url, {
+      method: 'GET',
+      headers: {
+        'Accept': 'application/json',
+        'Authorization': `Bearer ${MINTSCAN_API_KEY}`,
+      },
+    });
+
+    console.log(`[Mintscan] Response status: ${response.status}`);
 
     if (!response.ok) {
       const errorText = await response.text();
-      console.error(`Mintscan API error: ${response.status}`, errorText);
+      console.error(`[Mintscan] API error: ${response.status}`, errorText);
       throw new Error(`Mintscan API error: ${response.status} - ${errorText}`);
     }
 
     const data = await response.json();
-    console.log(`Successfully fetched ${data.data?.length || 0} transactions from Mintscan`);
+    console.log(`[Mintscan] Successfully fetched ${data.data?.length || 0} transactions`);
     return data.data || [];
   } catch (error) {
-    console.error('Mintscan fetch error:', error);
+    console.error('[Mintscan] Fetch error:', error);
     throw error;
   }
 }
@@ -67,15 +67,16 @@ export async function fetchTransactionsLCD(
   // Try each endpoint
   for (const endpoint of LCD_ENDPOINTS) {
     try {
+      console.log(`[LCD] Trying endpoint: ${endpoint}`);
       const txs = await fetchFromEndpoint(endpoint, address, limit, offset);
       if (txs.length > 0) {
-        console.log(`Successfully fetched ${txs.length} transactions from ${endpoint}`);
+        console.log(`[LCD] Successfully fetched ${txs.length} transactions from ${endpoint}`);
         return txs;
       }
     } catch (error) {
       const errorMsg = error instanceof Error ? error.message : 'Unknown error';
       errors.push(`${endpoint}: ${errorMsg}`);
-      console.warn(`Failed to fetch from ${endpoint}:`, errorMsg);
+      console.warn(`[LCD] Failed to fetch from ${endpoint}:`, errorMsg);
     }
   }
   
@@ -146,31 +147,37 @@ export async function fetchAllTransactions(
   address: string,
   limit: number = 100
 ): Promise<OsmosisTransaction[]> {
-  // Try Mintscan first if API key is available
-  if (MINTSCAN_API_KEY) {
-    try {
-      console.log('Attempting to fetch from Mintscan API...');
-      const mintscanTxs = await fetchTransactionsMintscan(address, limit);
-      if (mintscanTxs.length > 0) {
-        console.log(`Successfully fetched ${mintscanTxs.length} transactions from Mintscan`);
-        return mintscanTxs;
-      }
-    } catch (error) {
-      console.warn('Mintscan API failed, falling back to LCD endpoints:', error);
+  console.log(`[fetchAllTransactions] Starting fetch for address: ${address}`);
+  console.log(`[fetchAllTransactions] Mintscan API Key available: ${MINTSCAN_API_KEY ? 'YES' : 'NO'}`);
+  
+  // Try Mintscan first (it should always work now with hardcoded key)
+  try {
+    console.log('[fetchAllTransactions] Attempting to fetch from Mintscan API...');
+    const mintscanTxs = await fetchTransactionsMintscan(address, limit);
+    if (mintscanTxs.length > 0) {
+      console.log(`[fetchAllTransactions] Successfully fetched ${mintscanTxs.length} transactions from Mintscan`);
+      return mintscanTxs;
+    } else {
+      console.log('[fetchAllTransactions] Mintscan returned empty result');
     }
+  } catch (error) {
+    const errorMsg = error instanceof Error ? error.message : 'Unknown error';
+    console.warn(`[fetchAllTransactions] Mintscan API failed: ${errorMsg}`);
+    console.warn('[fetchAllTransactions] Falling back to LCD endpoints...');
   }
   
   // Fallback to LCD endpoints
   try {
-    console.log('Attempting to fetch from LCD endpoints...');
+    console.log('[fetchAllTransactions] Attempting to fetch from LCD endpoints...');
     const lcdTxs = await fetchTransactionsLCD(address, limit);
     if (lcdTxs.length > 0) {
-      console.log(`Successfully fetched ${lcdTxs.length} transactions from LCD endpoint`);
+      console.log(`[fetchAllTransactions] Successfully fetched ${lcdTxs.length} transactions from LCD endpoint`);
       return lcdTxs;
     }
   } catch (error) {
-    console.error('LCD endpoints also failed:', error);
-    throw error;
+    const errorMsg = error instanceof Error ? error.message : 'Unknown error';
+    console.error(`[fetchAllTransactions] LCD endpoints also failed: ${errorMsg}`);
+    throw new Error(`Failed to fetch transactions. Mintscan error and LCD error: ${errorMsg}`);
   }
   
   return [];
