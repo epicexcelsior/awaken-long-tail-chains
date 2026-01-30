@@ -1,56 +1,97 @@
-import { OsmosisTransaction, ParsedTransaction, TransactionType, Coin, Message } from '../types';
+import { OsmosisTransaction, ParsedTransaction, TransactionType } from '../types';
 
-const LCD_ENDPOINT = process.env.NEXT_PUBLIC_LCD_ENDPOINT || 'https://lcd.osmosis.zone';
-const RPC_ENDPOINT = process.env.NEXT_PUBLIC_RPC_ENDPOINT || 'https://rpc.osmosis.zone';
 const MINTSCAN_API_KEY = process.env.NEXT_PUBLIC_MINTSCAN_API_KEY || '';
+
+// Use a CORS proxy for the LCD endpoint or direct public endpoints that support CORS
+const LCD_ENDPOINTS = [
+  'https://lcd.osmosis.zone',
+  'https://osmosis-api.polkachu.com',
+  'https://api.osmosis.interbloc.org',
+];
 
 /**
  * Fetch transactions from Osmosis LCD REST API
- * This is the primary free method that doesn't require an API key
+ * Tries multiple endpoints to find one that works with CORS
  */
 export async function fetchTransactionsLCD(
   address: string,
   limit: number = 100,
   offset: number = 0
 ): Promise<OsmosisTransaction[]> {
-  try {
-    // Query transactions where address is sender OR receiver
-    const [senderResponse, receiverResponse] = await Promise.all([
-      fetch(`${LCD_ENDPOINT}/cosmos/tx/v1beta1/txs?events=transfer.sender='${address}'&pagination.limit=${limit}&pagination.offset=${offset}&order_by=ORDER_BY_DESC`, {
-        method: 'GET',
-        headers: {
-          'Accept': 'application/json',
-        },
-      }),
-      fetch(`${LCD_ENDPOINT}/cosmos/tx/v1beta1/txs?events=transfer.recipient='${address}'&pagination.limit=${limit}&pagination.offset=${offset}&order_by=ORDER_BY_DESC`, {
-        method: 'GET',
-        headers: {
-          'Accept': 'application/json',
-        },
-      }),
-    ]);
-
-    if (!senderResponse.ok && !receiverResponse.ok) {
-      throw new Error('Failed to fetch transactions from LCD endpoint');
+  const errors: string[] = [];
+  
+  // Try each endpoint
+  for (const endpoint of LCD_ENDPOINTS) {
+    try {
+      const txs = await fetchFromEndpoint(endpoint, address, limit, offset);
+      if (txs.length > 0) {
+        console.log(`Successfully fetched ${txs.length} transactions from ${endpoint}`);
+        return txs;
+      }
+    } catch (error) {
+      const errorMsg = error instanceof Error ? error.message : 'Unknown error';
+      errors.push(`${endpoint}: ${errorMsg}`);
+      console.warn(`Failed to fetch from ${endpoint}:`, errorMsg);
     }
-
-    const senderData = senderResponse.ok ? await senderResponse.json() : { tx_responses: [] };
-    const receiverData = receiverResponse.ok ? await receiverResponse.json() : { tx_responses: [] };
-
-    // Combine and deduplicate transactions
-    const allTxs = [...senderData.tx_responses, ...receiverData.tx_responses];
-    const uniqueTxs = Array.from(new Map(allTxs.map((tx: OsmosisTransaction) => [tx.txhash, tx])).values());
-
-    // Sort by timestamp descending
-    uniqueTxs.sort((a: OsmosisTransaction, b: OsmosisTransaction) => 
-      new Date(b.timestamp).getTime() - new Date(a.timestamp).getTime()
-    );
-
-    return uniqueTxs.slice(0, limit);
-  } catch (error) {
-    console.error('LCD fetch error:', error);
-    throw error;
   }
+  
+  // If all endpoints failed, throw error with details
+  throw new Error(`All LCD endpoints failed. Errors: ${errors.join('; ')}`);
+}
+
+async function fetchFromEndpoint(
+  endpoint: string,
+  address: string,
+  limit: number,
+  offset: number
+): Promise<OsmosisTransaction[]> {
+  // Query transactions where address is sender OR receiver
+  const [senderResponse, receiverResponse] = await Promise.allSettled([
+    fetch(`${endpoint}/cosmos/tx/v1beta1/txs?events=transfer.sender='${address}'&pagination.limit=${limit}&pagination.offset=${offset}&order_by=ORDER_BY_DESC`, {
+      method: 'GET',
+      headers: {
+        'Accept': 'application/json',
+      },
+    }),
+    fetch(`${endpoint}/cosmos/tx/v1beta1/txs?events=transfer.recipient='${address}'&pagination.limit=${limit}&pagination.offset=${offset}&order_by=ORDER_BY_DESC`, {
+      method: 'GET',
+      headers: {
+        'Accept': 'application/json',
+      },
+    }),
+  ]);
+
+  let senderTxs: OsmosisTransaction[] = [];
+  let receiverTxs: OsmosisTransaction[] = [];
+
+  if (senderResponse.status === 'fulfilled') {
+    if (senderResponse.value.ok) {
+      const data = await senderResponse.value.json();
+      senderTxs = data.tx_responses || [];
+    } else if (senderResponse.value.status === 500) {
+      throw new Error(`Server error (500) from ${endpoint}`);
+    }
+  } else {
+    throw senderResponse.reason;
+  }
+
+  if (receiverResponse.status === 'fulfilled') {
+    if (receiverResponse.value.ok) {
+      const data = await receiverResponse.value.json();
+      receiverTxs = data.tx_responses || [];
+    }
+  }
+
+  // Combine and deduplicate transactions
+  const allTxs = [...senderTxs, ...receiverTxs];
+  const uniqueTxs = Array.from(new Map(allTxs.map((tx: OsmosisTransaction) => [tx.txhash, tx])).values());
+
+  // Sort by timestamp descending
+  uniqueTxs.sort((a: OsmosisTransaction, b: OsmosisTransaction) => 
+    new Date(b.timestamp).getTime() - new Date(a.timestamp).getTime()
+  );
+
+  return uniqueTxs.slice(0, limit);
 }
 
 /**
@@ -148,7 +189,7 @@ export function parseTransaction(tx: OsmosisTransaction, walletAddress: string):
 
   if (message) {
     // Determine transaction type and extract details
-    if (message['@type'].includes('MsgSend')) {
+    if (message['@type']?.includes('MsgSend')) {
       type = message.from_address === walletAddress ? 'send' : 'receive';
       from = message.from_address || '';
       to = message.to_address || '';
@@ -157,10 +198,10 @@ export function parseTransaction(tx: OsmosisTransaction, walletAddress: string):
         amount = formatAmount(message.amount[0].amount);
         currency = formatDenom(message.amount[0].denom);
       }
-    } else if (message['@type'].includes('MsgSwap')) {
+    } else if (message['@type']?.includes('MsgSwap')) {
       type = 'swap';
       // Extract swap details from events if available
-    } else if (message['@type'].includes('MsgTransfer')) {
+    } else if (message['@type']?.includes('MsgTransfer')) {
       type = 'ibc_transfer';
       from = message.sender || '';
       to = message.receiver || '';
