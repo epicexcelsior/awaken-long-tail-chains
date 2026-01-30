@@ -1,0 +1,19 @@
+#:schema node_modules/wrangler/config-schema.json
+name = "osmosis-awaken-tax"
+compatibility_date = "2024-01-30"
+compatibility_flags = ["nodejs_compat"]
+
+# Cloudflare Pages configuration
+pages_build_output_dir = "dist"
+
+# Environment variables (set these in Cloudflare Pages dashboard)
+[vars]
+NEXT_PUBLIC_LCD_ENDPOINT = "https://lcd.osmosis.zone"
+NEXT_PUBLIC_RPC_ENDPOINT = "https://rpc.osmosis.zone"
+# NEXT_PUBLIC_MINTSCAN_API_KEY = "your-api-key-here" # Set this in Cloudflare dashboard
+
+# Production environment
+[env.production]
+[env.production.vars]
+NEXT_PUBLIC_LCD_ENDPOINT = "https://lcd.osmosis.zone"
+NEXT_PUBLIC_RPC_ENDPOINT = "https://rpc.osmosis.zone"
