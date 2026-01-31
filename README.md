@@ -192,7 +192,7 @@ MIT License - feel free to use for your own projects.
 ## Links
 - [Live Dashboard](https://awaken-long-tail-chains.pages.dev)
 - [GitHub Repository](https://github.com/epicexcelsior/awaken-long-tail-chains)
-- [Awaken Tax](https://awaken.tax)
+- [Awaken Tax](https://awaken.tax](https://awaken.tax/signup?ref=tp0xqrt0)
 
 ## Support
 For issues or feature requests, please open an issue on GitHub.
