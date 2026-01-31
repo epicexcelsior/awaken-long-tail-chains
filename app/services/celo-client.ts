@@ -27,26 +27,52 @@ const CELO_TOKEN_MAP: Record<string, string> = {
 const tokenMetadataCache: Map<string, { symbol: string; decimals: number; name: string }> = new Map();
 
 /**
- * Fetch ALL transactions from Celo using Etherscan v2 API
- * Comprehensive pagination to ensure we get complete history
+ * Fetch COMPREHENSIVE transaction history from Celo using Etherscan v2 API
+ * 
+ * Fetches ALL transaction types:
+ * 1. Regular transactions (txlist) - native transfers, contract calls
+ * 2. Internal transactions (txlistinternal) - DeFi, contract interactions, proxy transfers
+ * 3. ERC20 token transfers (tokentx) - all ERC20 tokens
+ * 4. ERC721 (NFT) transfers (tokennfttx) - NFTs
+ * 5. ERC1155 transfers (token1155tx) - multi-token standard
+ * 
+ * This ensures complete cost basis accuracy by capturing every single transaction.
  */
 export async function fetchAllTransactionsClientSide(
   address: string,
   onProgress?: (count: number, page: number) => void,
 ): Promise<{ transactions: ChainTransaction[]; metadata: any }> {
-  console.log(`[Celo] Starting comprehensive fetch for ${address}`);
+  console.log(`[Celo] Starting COMPREHENSIVE fetch for ${address}`);
 
-  // Fetch both regular transactions and token transfers
-  const [regularTransactions, tokenTransfers] = await Promise.all([
+  // Fetch ALL transaction types concurrently
+  const [
+    regularTransactions,
+    internalTransactions,
+    tokenTransfers,
+    nftTransfers,
+    erc1155Transfers
+  ] = await Promise.all([
     fetchAllRegularTransactions(address, onProgress),
+    fetchAllInternalTransactions(address),
     fetchAllTokenTransfers(address),
+    fetchAllNFTTransfers(address),
+    fetchAllERC1155Transfers(address),
   ]);
 
   console.log(`[Celo] Fetched ${regularTransactions.length} regular transactions`);
-  console.log(`[Celo] Fetched ${tokenTransfers.length} token transfers`);
+  console.log(`[Celo] Fetched ${internalTransactions.length} internal transactions`);
+  console.log(`[Celo] Fetched ${tokenTransfers.length} ERC20 token transfers`);
+  console.log(`[Celo] Fetched ${nftTransfers.length} ERC721 (NFT) transfers`);
+  console.log(`[Celo] Fetched ${erc1155Transfers.length} ERC1155 transfers`);
 
-  // Merge token transfers into regular transactions
-  const mergedTransactions = mergeTransactionsAndTransfers(regularTransactions, tokenTransfers);
+  // Merge all transaction types into a comprehensive list
+  const mergedTransactions = mergeAllTransactions(
+    regularTransactions,
+    internalTransactions,
+    tokenTransfers,
+    nftTransfers,
+    erc1155Transfers
+  );
 
   // Sort by timestamp (newest first)
   mergedTransactions.sort(
@@ -63,7 +89,7 @@ export async function fetchAllTransactionsClientSide(
       ? new Date(Math.max(...dates.map((d) => d.getTime())))
       : null;
 
-  console.log(`[Celo] FINAL: ${mergedTransactions.length} unique transactions`);
+  console.log(`[Celo] FINAL: ${mergedTransactions.length} unique transactions (comprehensive)`);
 
   return {
     transactions: mergedTransactions,
@@ -72,10 +98,13 @@ export async function fetchAllTransactionsClientSide(
       chain: CHAIN_ID,
       totalFetched: mergedTransactions.length,
       regularTxCount: regularTransactions.length,
+      internalTxCount: internalTransactions.length,
       tokenTransferCount: tokenTransfers.length,
+      nftTransferCount: nftTransfers.length,
+      erc1155TransferCount: erc1155Transfers.length,
       firstTransactionDate: firstDate?.toISOString(),
       lastTransactionDate: lastDate?.toISOString(),
-      dataSource: "Etherscan v2 API",
+      dataSource: "Etherscan v2 API (Comprehensive)",
       chainId: CHAIN_ID_NUM,
     },
   };
@@ -88,40 +117,122 @@ async function fetchAllRegularTransactions(
   address: string,
   onProgress?: (count: number, page: number) => void,
 ): Promise<EtherscanTransaction[]> {
-  const allTransactions: EtherscanTransaction[] = [];
+  return fetchWithPagination<EtherscanTransaction>(
+    address,
+    'txlist',
+    'regular',
+    onProgress
+  );
+}
+
+/**
+ * Fetch all internal transactions using txlistinternal endpoint
+ * 
+ * Internal transactions are CRITICAL for DeFi and contract interactions.
+ * They capture:
+ * - Contract-to-contract calls
+ * - DeFi protocol interactions (swaps, liquidity, etc.)
+ * - Proxy contract transfers
+ * - Multi-sig operations
+ */
+async function fetchAllInternalTransactions(
+  address: string
+): Promise<EtherscanInternalTransaction[]> {
+  return fetchWithPagination<EtherscanInternalTransaction>(
+    address,
+    'txlistinternal',
+    'internal'
+  );
+}
+
+/**
+ * Fetch all ERC20 token transfers using tokentx endpoint
+ */
+async function fetchAllTokenTransfers(
+  address: string
+): Promise<EtherscanTokenTransfer[]> {
+  return fetchWithPagination<EtherscanTokenTransfer>(
+    address,
+    'tokentx',
+    'token'
+  );
+}
+
+/**
+ * Fetch all ERC721 (NFT) transfers using tokennfttx endpoint
+ */
+async function fetchAllNFTTransfers(
+  address: string
+): Promise<EtherscanNFTTransfer[]> {
+  return fetchWithPagination<EtherscanNFTTransfer>(
+    address,
+    'tokennfttx',
+    'nft'
+  );
+}
+
+/**
+ * Fetch all ERC1155 token transfers using token1155tx endpoint
+ */
+async function fetchAllERC1155Transfers(
+  address: string
+): Promise<EtherscanERC1155Transfer[]> {
+  return fetchWithPagination<EtherscanERC1155Transfer>(
+    address,
+    'token1155tx',
+    'erc1155'
+  );
+}
+
+/**
+ * Generic pagination function for all Etherscan endpoints
+ */
+async function fetchWithPagination<T>(
+  address: string,
+  action: string,
+  typeLabel: string,
+  onProgress?: (count: number, page: number) => void
+): Promise<T[]> {
+  const allItems: T[] = [];
   let page = 1;
   let hasMore = true;
 
   while (hasMore && page <= MAX_PAGES) {
-    const url = `${BASE_URL}?module=account&action=txlist&address=${address}&chainid=${CHAIN_ID_NUM}&page=${page}&offset=${PAGE_SIZE}&sort=desc&apikey=${API_KEY}`;
+    const url = `${BASE_URL}?module=account&action=${action}&address=${address}&chainid=${CHAIN_ID_NUM}&page=${page}&offset=${PAGE_SIZE}&sort=desc&apikey=${API_KEY}`;
 
-    console.log(`[Celo] Fetching txlist page ${page}...`);
+    console.log(`[Celo] Fetching ${typeLabel} page ${page}...`);
 
     try {
       const response = await fetch(url);
       const data = await response.json();
 
       if (data.status !== "1") {
-        console.error(`[Celo] Page ${page} error:`, data.message || data.result);
+        // Some endpoints return "No transactions found" as status "0" but it's not an error
+        if (data.result === "No transactions found") {
+          console.log(`[Celo] No ${typeLabel} transactions found`);
+          hasMore = false;
+          break;
+        }
+        console.error(`[Celo] ${typeLabel} page ${page} error:`, data.message || data.result);
         break;
       }
 
-      const transactions: EtherscanTransaction[] = data.result || [];
+      const items: T[] = data.result || [];
 
-      if (transactions.length === 0) {
+      if (items.length === 0) {
         hasMore = false;
         break;
       }
 
-      allTransactions.push(...transactions);
+      allItems.push(...items);
 
-      if (onProgress) {
-        onProgress(allTransactions.length, page);
+      if (onProgress && typeLabel === 'regular') {
+        onProgress(allItems.length, page);
       }
 
-      console.log(`[Celo] Page ${page}: +${transactions.length} | Total: ${allTransactions.length}`);
+      console.log(`[Celo] ${typeLabel} page ${page}: +${items.length} | Total: ${allItems.length}`);
 
-      hasMore = transactions.length === PAGE_SIZE;
+      hasMore = items.length === PAGE_SIZE;
       page++;
 
       // Rate limiting
@@ -129,141 +240,168 @@ async function fetchAllRegularTransactions(
         await new Promise((resolve) => setTimeout(resolve, DELAY_MS));
       }
     } catch (error) {
-      console.error(`[Celo] Page ${page} exception:`, error);
+      console.error(`[Celo] ${typeLabel} page ${page} exception:`, error);
       break;
     }
   }
 
-  return allTransactions;
+  return allItems;
 }
 
 /**
- * Fetch all token transfers using tokentx endpoint
+ * Merge ALL transaction types into comprehensive ChainTransaction list
  */
-async function fetchAllTokenTransfers(address: string): Promise<EtherscanTokenTransfer[]> {
-  const allTransfers: EtherscanTokenTransfer[] = [];
-  let page = 1;
-  let hasMore = true;
-
-  while (hasMore && page <= MAX_PAGES) {
-    const url = `${BASE_URL}?module=account&action=tokentx&address=${address}&chainid=${CHAIN_ID_NUM}&page=${page}&offset=${PAGE_SIZE}&sort=desc&apikey=${API_KEY}`;
-
-    console.log(`[Celo] Fetching tokentx page ${page}...`);
-
-    try {
-      const response = await fetch(url);
-      const data = await response.json();
-
-      if (data.status !== "1") {
-        console.log(`[Celo] tokentx page ${page}:`, data.message || data.result);
-        break;
-      }
-
-      const transfers: EtherscanTokenTransfer[] = data.result || [];
-
-      if (transfers.length === 0) {
-        hasMore = false;
-        break;
-      }
-
-      allTransfers.push(...transfers);
-
-      console.log(`[Celo] tokentx page ${page}: +${transfers.length} | Total: ${allTransfers.length}`);
-
-      hasMore = transfers.length === PAGE_SIZE;
-      page++;
-
-      // Rate limiting
-      if (hasMore) {
-        await new Promise((resolve) => setTimeout(resolve, DELAY_MS));
-      }
-    } catch (error) {
-      console.error(`[Celo] tokentx page ${page} exception:`, error);
-      break;
-    }
-  }
-
-  return allTransfers;
-}
-
-/**
- * Merge regular transactions with token transfers
- */
-function mergeTransactionsAndTransfers(
-  transactions: EtherscanTransaction[],
-  transfers: EtherscanTokenTransfer[]
+function mergeAllTransactions(
+  regularTransactions: EtherscanTransaction[],
+  internalTransactions: EtherscanInternalTransaction[],
+  tokenTransfers: EtherscanTokenTransfer[],
+  nftTransfers: EtherscanNFTTransfer[],
+  erc1155Transfers: EtherscanERC1155Transfer[]
 ): ChainTransaction[] {
-  // Group transfers by transaction hash
-  const transfersByHash = new Map<string, EtherscanTokenTransfer[]>();
+  const chainTransactions: ChainTransaction[] = [];
+  const processedHashes = new Set<string>();
+
+  // Group all transfers by transaction hash for merging
+  const transfersByHash = new Map<string, TransferGroup>();
   
-  transfers.forEach(transfer => {
+  // Group ERC20 transfers
+  tokenTransfers.forEach(transfer => {
     if (!transfersByHash.has(transfer.hash)) {
-      transfersByHash.set(transfer.hash, []);
+      transfersByHash.set(transfer.hash, { erc20: [], nft: [], erc1155: [] });
     }
-    transfersByHash.get(transfer.hash)!.push(transfer);
+    transfersByHash.get(transfer.hash)!.erc20.push(transfer);
   });
 
-  // Convert regular transactions to ChainTransaction format
-  const chainTransactions: ChainTransaction[] = transactions.map(tx => {
-    const txTransfers = transfersByHash.get(tx.hash) || [];
-    return convertToChainTransaction(tx, txTransfers);
+  // Group NFT transfers
+  nftTransfers.forEach(transfer => {
+    if (!transfersByHash.has(transfer.hash)) {
+      transfersByHash.set(transfer.hash, { erc20: [], nft: [], erc1155: [] });
+    }
+    transfersByHash.get(transfer.hash)!.nft.push(transfer);
   });
 
-  // Add transfers that don't have a matching regular transaction
-  const txHashes = new Set(transactions.map(t => t.hash));
-  const orphanedTransfers = transfers.filter(t => !txHashes.has(t.hash));
-  
-  if (orphanedTransfers.length > 0) {
-    // Group orphaned transfers by hash
-    const orphanedByHash = new Map<string, EtherscanTokenTransfer[]>();
-    orphanedTransfers.forEach(t => {
-      if (!orphanedByHash.has(t.hash)) {
-        orphanedByHash.set(t.hash, []);
+  // Group ERC1155 transfers
+  erc1155Transfers.forEach(transfer => {
+    if (!transfersByHash.has(transfer.hash)) {
+      transfersByHash.set(transfer.hash, { erc20: [], nft: [], erc1155: [] });
+    }
+    transfersByHash.get(transfer.hash)!.erc1155.push(transfer);
+  });
+
+  // Convert regular transactions
+  regularTransactions.forEach(tx => {
+    const transfers = transfersByHash.get(tx.hash);
+    chainTransactions.push(convertRegularTransaction(tx, transfers));
+    processedHashes.add(tx.hash);
+  });
+
+  // Convert internal transactions (these might not have matching regular transactions)
+  internalTransactions.forEach(tx => {
+    if (!processedHashes.has(tx.hash)) {
+      chainTransactions.push(convertInternalTransaction(tx));
+      processedHashes.add(tx.hash);
+    }
+  });
+
+  // Add orphaned transfers (transfers without matching regular transactions)
+  transfersByHash.forEach((transfers, hash) => {
+    if (!processedHashes.has(hash)) {
+      // Find a representative transfer to get timestamp/block info
+      const representative = transfers.erc20[0] || transfers.nft[0] || transfers.erc1155[0];
+      if (representative) {
+        chainTransactions.push(convertTransferToChainTransaction(hash, representative, transfers));
       }
-      orphanedByHash.get(t.hash)!.push(t);
-    });
-
-    // Convert orphaned transfers to ChainTransaction format
-    orphanedByHash.forEach((transfers, hash) => {
-      const representative = transfers[0];
-      chainTransactions.push(convertTransferToChainTransaction(hash, representative, transfers));
-    });
-  }
+    }
+  });
 
   return chainTransactions;
 }
 
 /**
- * Convert Etherscan transaction to ChainTransaction format
+ * Convert regular Etherscan transaction to ChainTransaction
  */
-function convertToChainTransaction(
+function convertRegularTransaction(
   tx: EtherscanTransaction,
-  tokenTransfers: EtherscanTokenTransfer[]
+  transfers?: TransferGroup
 ): ChainTransaction {
   const fee = (BigInt(tx.gasUsed || 0) * BigInt(tx.gasPrice || 0)).toString();
 
-  // Build token transfer events
-  const tokenEvents: TxEvent[] = tokenTransfers.map((transfer, idx) => {
-    const metadata = getTokenMetadata(
-      transfer.contractAddress,
-      transfer.tokenSymbol,
-      transfer.tokenName,
-      transfer.tokenDecimal
-    );
+  // Build token events from all transfer types
+  const tokenEvents: TxEvent[] = [];
+  
+  if (transfers) {
+    // ERC20 transfers
+    transfers.erc20.forEach((transfer, idx) => {
+      const metadata = getTokenMetadata(
+        transfer.contractAddress,
+        transfer.tokenSymbol,
+        transfer.tokenName,
+        transfer.tokenDecimal
+      );
 
-    return {
-      type: "token_transfer",
-      attributes: [
-        { key: "sender_address", value: transfer.contractAddress },
-        { key: "token_symbol", value: metadata.symbol },
-        { key: "token_name", value: metadata.name },
-        { key: "decimals", value: String(metadata.decimals) },
-        { key: "value", value: transfer.value },
-        { key: "from", value: transfer.from },
-        { key: "to", value: transfer.to },
-      ],
-    };
-  });
+      tokenEvents.push({
+        type: "token_transfer",
+        attributes: [
+          { key: "sender_address", value: transfer.contractAddress },
+          { key: "token_symbol", value: metadata.symbol },
+          { key: "token_name", value: metadata.name },
+          { key: "decimals", value: String(metadata.decimals) },
+          { key: "value", value: transfer.value },
+          { key: "from", value: transfer.from },
+          { key: "to", value: transfer.to },
+          { key: "token_type", value: "ERC20" },
+        ],
+      });
+    });
+
+    // NFT transfers
+    transfers.nft.forEach((transfer, idx) => {
+      const metadata = getTokenMetadata(
+        transfer.contractAddress,
+        transfer.tokenSymbol,
+        transfer.tokenName,
+        "0"
+      );
+
+      tokenEvents.push({
+        type: "nft_transfer",
+        attributes: [
+          { key: "sender_address", value: transfer.contractAddress },
+          { key: "token_symbol", value: metadata.symbol },
+          { key: "token_name", value: metadata.name },
+          { key: "token_id", value: transfer.tokenID },
+          { key: "from", value: transfer.from },
+          { key: "to", value: transfer.to },
+          { key: "token_type", value: "ERC721" },
+        ],
+      });
+    });
+
+    // ERC1155 transfers
+    transfers.erc1155.forEach((transfer, idx) => {
+      const metadata = getTokenMetadata(
+        transfer.contractAddress,
+        transfer.tokenSymbol,
+        transfer.tokenName,
+        transfer.tokenDecimal
+      );
+
+      tokenEvents.push({
+        type: "erc1155_transfer",
+        attributes: [
+          { key: "sender_address", value: transfer.contractAddress },
+          { key: "token_symbol", value: metadata.symbol },
+          { key: "token_name", value: metadata.name },
+          { key: "decimals", value: String(metadata.decimals) },
+          { key: "value", value: transfer.tokenValue },
+          { key: "token_id", value: transfer.tokenID },
+          { key: "from", value: transfer.from },
+          { key: "to", value: transfer.to },
+          { key: "token_type", value: "ERC1155" },
+        ],
+      });
+    });
+  }
 
   return {
     hash: tx.hash,
@@ -308,15 +446,66 @@ function convertToChainTransaction(
 }
 
 /**
- * Convert orphaned token transfer to ChainTransaction format
+ * Convert internal transaction to ChainTransaction
+ */
+function convertInternalTransaction(tx: EtherscanInternalTransaction): ChainTransaction {
+  return {
+    hash: tx.hash,
+    height: tx.blockNumber,
+    timestamp: new Date(parseInt(tx.timeStamp) * 1000).toISOString(),
+    code: tx.isError === "1" ? 1 : 0,
+    chain: CHAIN_ID,
+    logs: [{
+      msg_index: 0,
+      log: "Internal transaction",
+      events: [{
+        type: "internal_transaction",
+        attributes: [
+          { key: "type", value: tx.type || "call" },
+          { key: "trace_id", value: tx.traceId || "0" },
+          { key: "contract_address", value: tx.contractAddress || "" },
+          { key: "err_code", value: tx.errCode || "" },
+        ],
+      }],
+    }],
+    tx: {
+      body: {
+        messages: [
+          {
+            "@type": "/cosmos.bank.v1beta1.MsgSend",
+            from_address: tx.from,
+            to_address: tx.to || "0x0000000000000000000000000000000000000000",
+            amount: [
+              {
+                amount: tx.value,
+                denom: "wei",
+              },
+            ],
+          },
+        ],
+        memo: `Internal transaction: ${tx.type || "call"}`,
+      },
+      auth_info: {
+        fee: {
+          amount: [],
+        },
+      },
+    },
+  };
+}
+
+/**
+ * Convert orphaned transfers to ChainTransaction
  */
 function convertTransferToChainTransaction(
   hash: string,
-  representative: EtherscanTokenTransfer,
-  allTransfers: EtherscanTokenTransfer[]
+  representative: EtherscanTokenTransfer | EtherscanNFTTransfer | EtherscanERC1155Transfer,
+  transfers: TransferGroup
 ): ChainTransaction {
-  // Build token transfer events
-  const tokenEvents: TxEvent[] = allTransfers.map((transfer) => {
+  const tokenEvents: TxEvent[] = [];
+
+  // ERC20 transfers
+  transfers.erc20.forEach(transfer => {
     const metadata = getTokenMetadata(
       transfer.contractAddress,
       transfer.tokenSymbol,
@@ -324,7 +513,7 @@ function convertTransferToChainTransaction(
       transfer.tokenDecimal
     );
 
-    return {
+    tokenEvents.push({
       type: "token_transfer",
       attributes: [
         { key: "sender_address", value: transfer.contractAddress },
@@ -334,14 +523,66 @@ function convertTransferToChainTransaction(
         { key: "value", value: transfer.value },
         { key: "from", value: transfer.from },
         { key: "to", value: transfer.to },
+        { key: "token_type", value: "ERC20" },
       ],
-    };
+    });
   });
+
+  // NFT transfers
+  transfers.nft.forEach(transfer => {
+    const metadata = getTokenMetadata(
+      transfer.contractAddress,
+      transfer.tokenSymbol,
+      transfer.tokenName,
+      "0"
+    );
+
+    tokenEvents.push({
+      type: "nft_transfer",
+      attributes: [
+        { key: "sender_address", value: transfer.contractAddress },
+        { key: "token_symbol", value: metadata.symbol },
+        { key: "token_name", value: metadata.name },
+        { key: "token_id", value: transfer.tokenID },
+        { key: "from", value: transfer.from },
+        { key: "to", value: transfer.to },
+        { key: "token_type", value: "ERC721" },
+      ],
+    });
+  });
+
+  // ERC1155 transfers
+  transfers.erc1155.forEach(transfer => {
+    const metadata = getTokenMetadata(
+      transfer.contractAddress,
+      transfer.tokenSymbol,
+      transfer.tokenName,
+      transfer.tokenDecimal
+    );
+
+    tokenEvents.push({
+      type: "erc1155_transfer",
+      attributes: [
+        { key: "sender_address", value: transfer.contractAddress },
+        { key: "token_symbol", value: metadata.symbol },
+        { key: "token_name", value: metadata.name },
+        { key: "decimals", value: String(metadata.decimals) },
+        { key: "value", value: transfer.tokenValue },
+        { key: "token_id", value: transfer.tokenID },
+        { key: "from", value: transfer.from },
+        { key: "to", value: transfer.to },
+        { key: "token_type", value: "ERC1155" },
+      ],
+    });
+  });
+
+  // Get from/to from first available transfer
+  const firstTransfer = transfers.erc20[0] || transfers.nft[0] || transfers.erc1155[0];
 
   return {
     hash,
-    height: representative.blockNumber,
-    timestamp: new Date(parseInt(representative.timeStamp) * 1000).toISOString(),
+    height: (representative as any).blockNumber || "0",
+    timestamp: new Date(parseInt((representative as any).timeStamp) * 1000).toISOString(),
     code: 0,
     chain: CHAIN_ID,
     logs: [{
@@ -354,8 +595,8 @@ function convertTransferToChainTransaction(
         messages: [
           {
             "@type": "/cosmos.bank.v1beta1.MsgSend",
-            from_address: representative.from,
-            to_address: representative.to,
+            from_address: firstTransfer?.from || "",
+            to_address: firstTransfer?.to || "",
             amount: [
               {
                 amount: "0",
@@ -373,48 +614,6 @@ function convertTransferToChainTransaction(
       },
     },
   };
-}
-
-/**
- * Get standardized token symbol from various sources
- * Ensures consistent token identification for cost basis matching
- */
-function getTokenSymbol(contractAddress: string, apiSymbol: string, apiName: string): string {
-  const address = contractAddress?.toLowerCase() || "";
-  
-  // Check cache first for consistency
-  if (tokenMetadataCache.has(address)) {
-    return tokenMetadataCache.get(address)!.symbol;
-  }
-  
-  // Check hardcoded mapping
-  if (CELO_TOKEN_MAP[address]) {
-    tokenMetadataCache.set(address, {
-      symbol: CELO_TOKEN_MAP[address],
-      decimals: 18,
-      name: apiName || CELO_TOKEN_MAP[address],
-    });
-    return CELO_TOKEN_MAP[address];
-  }
-  
-  // Use provided symbol if available and valid
-  if (apiSymbol && apiSymbol.length > 0 && apiSymbol !== "null" && apiSymbol !== "undefined") {
-    tokenMetadataCache.set(address, {
-      symbol: apiSymbol,
-      decimals: 18,
-      name: apiName || apiSymbol,
-    });
-    return apiSymbol;
-  }
-  
-  // Fall back to shortened address with 0x prefix for traceability
-  const shortAddr = address.slice(0, 10);
-  tokenMetadataCache.set(address, {
-    symbol: shortAddr,
-    decimals: 18,
-    name: apiName || shortAddr,
-  });
-  return shortAddr;
 }
 
 /**
@@ -480,7 +679,7 @@ export function parseTransaction(
   let currency2 = "";
   let fee = "";
   let feeCurrency = "CELO";
-  const tokenTransfers: Array<{ symbol: string; amount: string; from: string; to: string }> = [];
+  const tokenTransfers: Array<{ symbol: string; amount: string; from: string; to: string; tokenType: string }> = [];
 
   if (message) {
     from = message.from_address || "";
@@ -513,56 +712,60 @@ export function parseTransaction(
       for (const log of tx.logs) {
         if (log.events && Array.isArray(log.events)) {
           for (const event of log.events) {
-            if (event.type === "token_transfer" && event.attributes) {
+            if ((event.type === "token_transfer" || event.type === "nft_transfer" || event.type === "erc1155_transfer") && event.attributes) {
               const attrs: Record<string, string> = {};
               for (const attr of event.attributes) {
                 attrs[attr.key] = attr.value;
               }
 
               const tokenSymbol = attrs["token_symbol"] || "";
-              const decimals = parseInt(attrs["decimals"] || "18");
+              const decimals = parseInt(attrs["decimals"] || "0");
               const value = attrs["value"] || "0";
+              const tokenId = attrs["token_id"];
+              const tokenType = attrs["token_type"] || "ERC20";
               const fromAddr = attrs["from"] || "";
               const toAddr = attrs["to"] || "";
 
               // Calculate token amount
-              const tokenAmount = parseFloat(value) / Math.pow(10, decimals);
-              const formattedAmount = tokenAmount.toFixed(6);
-
-              // Determine direction for this token transfer
-              const tokenIsOutgoing = fromAddr.toLowerCase() === walletLower;
-              const tokenIsIncoming = toAddr.toLowerCase() === walletLower;
+              let formattedAmount: string;
+              if (tokenType === "ERC721") {
+                // NFTs don't have decimals
+                formattedAmount = tokenId ? `1 (ID: ${tokenId})` : "1";
+              } else {
+                const tokenAmount = parseFloat(value) / Math.pow(10, decimals || 18);
+                formattedAmount = tokenAmount.toFixed(6);
+              }
 
               tokenTransfers.push({
                 symbol: tokenSymbol,
                 amount: formattedAmount,
                 from: fromAddr,
                 to: toAddr,
+                tokenType,
               });
 
               // Update transaction type based on token transfers
+              const tokenIsOutgoing = fromAddr.toLowerCase() === walletLower;
+              const tokenIsIncoming = toAddr.toLowerCase() === walletLower;
+
               if (tokenTransfers.length === 1) {
-                // First token transfer - use as primary if no CELO amount
                 if (!amount || amount === "" || amount === "0") {
                   amount = formattedAmount;
                   currency = tokenSymbol;
                   from = fromAddr;
                   to = toAddr;
                   type = tokenIsOutgoing ? "send" : tokenIsIncoming ? "receive" : "unknown";
-                } else {
-                  // We have CELO amount, use token as secondary
+                } else if (!amount2) {
                   amount2 = formattedAmount;
                   currency2 = tokenSymbol;
                 }
               } else if (tokenTransfers.length === 2 && amount2 === "") {
-                // Second token transfer - use as secondary
                 amount2 = formattedAmount;
                 currency2 = tokenSymbol;
                 
-                // If we have both incoming and outgoing tokens, it's likely a swap
                 const firstTransfer = tokenTransfers[0];
                 const firstIsOutgoing = firstTransfer.from.toLowerCase() === walletLower;
-                const secondIsIncoming = toAddr.toLowerCase() === walletLower;
+                const secondIsIncoming = tokenIsIncoming;
                 
                 if ((firstIsOutgoing && secondIsIncoming) || (tokenIsOutgoing && firstTransfer.to.toLowerCase() === walletLower)) {
                   type = "swap";
@@ -574,12 +777,10 @@ export function parseTransaction(
       }
     }
 
-    // If no amount set and no token transfers, check if it's a contract interaction
-    if ((!amount || amount === "") && tokenTransfers.length === 0) {
-      if (isOutgoing) {
-        type = "send";
-      } else if (isIncoming) {
-        type = "receive";
+    // Check if this is an internal transaction
+    if (tx.tx?.body?.memo?.includes("Internal transaction")) {
+      if (type === "unknown") {
+        type = isOutgoing ? "send" : isIncoming ? "receive" : "unknown";
       }
     }
   }
@@ -596,7 +797,12 @@ export function parseTransaction(
   
   // Add token transfer details to notes
   if (tokenTransfers.length > 0) {
-    const transferSummary = tokenTransfers.map(t => `${t.amount} ${t.symbol}`).join(", ");
+    const transferSummary = tokenTransfers.map(t => {
+      if (t.tokenType === "ERC721") {
+        return `${t.symbol} ${t.amount}`;
+      }
+      return `${t.amount} ${t.symbol}`;
+    }).join(", ");
     notes += ` - ${transferSummary}`;
   }
   
@@ -654,6 +860,23 @@ interface EtherscanTransaction {
   functionName?: string;
 }
 
+interface EtherscanInternalTransaction {
+  blockNumber: string;
+  timeStamp: string;
+  hash: string;
+  from: string;
+  to: string;
+  value: string;
+  contractAddress: string;
+  input: string;
+  type: string;
+  gas: string;
+  gasUsed: string;
+  traceId: string;
+  isError: string;
+  errCode: string;
+}
+
 interface EtherscanTokenTransfer {
   blockNumber: string;
   timeStamp: string;
@@ -674,6 +897,57 @@ interface EtherscanTokenTransfer {
   cumulativeGasUsed: string;
   input: string;
   confirmations: string;
+}
+
+interface EtherscanNFTTransfer {
+  blockNumber: string;
+  timeStamp: string;
+  hash: string;
+  nonce: string;
+  blockHash: string;
+  from: string;
+  contractAddress: string;
+  to: string;
+  tokenID: string;
+  tokenName: string;
+  tokenSymbol: string;
+  tokenDecimal: string;
+  transactionIndex: string;
+  gas: string;
+  gasPrice: string;
+  gasUsed: string;
+  cumulativeGasUsed: string;
+  input: string;
+  confirmations: string;
+}
+
+interface EtherscanERC1155Transfer {
+  blockNumber: string;
+  timeStamp: string;
+  hash: string;
+  nonce: string;
+  blockHash: string;
+  from: string;
+  contractAddress: string;
+  to: string;
+  tokenID: string;
+  tokenValue: string;
+  tokenName: string;
+  tokenSymbol: string;
+  tokenDecimal: string;
+  transactionIndex: string;
+  gas: string;
+  gasPrice: string;
+  gasUsed: string;
+  cumulativeGasUsed: string;
+  input: string;
+  confirmations: string;
+}
+
+interface TransferGroup {
+  erc20: EtherscanTokenTransfer[];
+  nft: EtherscanNFTTransfer[];
+  erc1155: EtherscanERC1155Transfer[];
 }
 
 interface TxEvent {
