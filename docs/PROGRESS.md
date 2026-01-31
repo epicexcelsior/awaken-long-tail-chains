@@ -16,15 +16,16 @@ Build a general-purpose dashboard for viewing wallet transaction history across 
 
 ## Current Status
 
-| Chain         | Status           | API Used                  | Notes                                      |
-| ------------- | ---------------- | ------------------------- | ------------------------------------------ |
-| **Celo**      | ✅ **Working**   | Etherscan v2 API          | All 5 endpoints: txlist, internal, ERC20, ERC721, ERC1155 |
-| **Fantom**    | ⚠️ Deprecated    | Tatum API                 | Limited to 50 txs, needs migration         |
-| **Osmosis**   | ❌ Partial       | LCD API                   | Only returns ~1-4 transactions             |
-| **Babylon**   | ❌ Failing       | REST API                  | 500 errors from AllThatNode                |
-| **NEAR**      | ✅ Implemented   | Pikespeak API             | 50/page, full pagination, 5k tx max        |
-| **Ronin**     | ✅ **Working**   | GoldRush (Covalent)       | 1,401 txs fetched, 100% cost basis         |
-| **Celestia**  | ✅ **Working**   | Celenium API              | 1,982 txs fetched, full pagination, no API key |
+| Chain         | Status           | API Used                  | Notes                                      | USD Support |
+| ------------- | ---------------- | ------------------------- | ------------------------------------------ | ----------- |
+| **Celo**      | ✅ **Working**   | Etherscan v2 API          | All 5 endpoints: txlist, internal, ERC20, ERC721, ERC1155 | ❌ PRO plan required ($199+/mo) |
+| **Fantom**    | ⚠️ Deprecated    | Tatum API                 | Limited to 50 txs, needs migration         | N/A |
+| **Osmosis**   | ❌ Partial       | LCD API                   | Only returns ~1-4 transactions             | N/A |
+| **Babylon**   | ❌ Failing       | REST API                  | 500 errors from AllThatNode                | N/A |
+| **NEAR**      | ✅ Implemented   | Pikespeak API             | 50/page, full pagination, 5k tx max        | Not tested |
+| **Ronin**     | ✅ **Working**   | GoldRush (Covalent)       | 1,401 txs fetched, 100% cost basis         | ✅ Native RON only |
+| **Celestia**  | ✅ **Working**   | Celenium API              | 1,982 txs fetched, full pagination, no API key | ❌ Not available in free tier |
+| **Tezos**     | ✅ **Working**   | TzKT API                  | 22 transactions (18 XTZ + 4 tokens)        | ✅ Native XTZ only |
 
 ---
 
@@ -556,6 +557,57 @@ For static exports on platforms like Cloudflare Pages:
 - Achieved 100% cost basis accuracy
 - Added token symbol caching system
 - Enhanced CSV export with transaction hashes and multi-asset support
+
+### 2026-02-01 - Major Improvements: USD Fiat Values & Bug Fixes
+
+#### Celestia Bug Fix
+- **CRITICAL BUG FIXED**: Fixed double decimal bug in fee calculation
+- Root cause: `Number(remainder) / NATIVE_DECIMALS` was dividing by 6 instead of 1,000,000
+- Fixed to: `Number(remainder) / Math.pow(10, NATIVE_DECIMALS)`
+- Impact: Fees were showing as "0.846.00000000" instead of "0.84600000"
+- Amount parsing also fixed - was showing "0.0" for all transactions
+- Files changed: `app/services/celestia-client.ts` lines 313, 326
+
+#### Ronin USD Fiat Value Support
+- **MAJOR FEATURE**: Added USD fiat value extraction from GoldRush API
+- GoldRush API provides `value_quote`, `gas_quote`, and `gas_quote_rate` when using `quote-currency=USD`
+- Captured these values in transaction logs as `usd_quote` events
+- Calculated `fiatAmount` for each transaction using: `amount × quote_rate`
+- Populates "Received/Sent Fiat Amount" columns in CSV export
+- Enables Awaken Tax cost basis calculations with historical USD values
+- Files changed: `app/services/ronin-client.ts`
+
+#### Tezos USD Fiat Value Support  
+- **ENHANCEMENT**: TzKT API already provides USD quotes via `?quote=usd` parameter
+- Already implemented: Extracts USD price per XTZ at transaction time
+- Calculates fiat value: `(amount in XTZ) × (USD price per XTZ)`
+- Populates "Received/Sent Fiat Amount" for XTZ transactions
+- Token transfers (FA1.2/FA2) do not have USD quotes from TzKT
+- Files changed: `app/services/tezos-client.ts`
+
+#### Celo - No USD Support Available
+- **CONSTRAINT**: Etherscan v2 API requires PRO plan ($199+/month) for historical prices
+- No free alternative available for historical CELO prices
+- Token transfers (cUSD, cEUR, etc.) also lack USD price data
+- Leaving fiat amount fields empty for now (Awaken will estimate)
+
+#### CSV Export Improvements
+- Updated `csvExport.ts` to populate `Received Fiat Amount` and `Sent Fiat Amount` columns
+- Updated `ParsedTransaction` type to include `fiatAmount` and `fiatCurrency` fields
+- Format: USD values rounded to 2 decimal places
+
+#### Testing Results
+- **Celestia**: Fee amounts now correct, transaction amounts properly parsed
+- **Ronin**: USD values successfully extracted and populated in CSV
+- **Tezos**: USD values working for native XTZ transfers
+- **Celo**: No USD data available without paid API tier
+
+#### Key Learning
+Not all APIs provide historical fiat values:
+- ✅ GoldRush (Ronin): Provides `value_quote` and `gas_quote` for native transfers
+- ✅ TzKT (Tezos): Provides `quote.usd` for XTZ transactions  
+- ❌ Celenium (Celestia): No price data in free tier
+- ❌ Etherscan (Celo): Historical prices require PRO plan ($199+/mo)
 
 ### 2026-01-30 - Initial Implementation
 - Multi-chain dashboard with Osmosis, Babylon, Celo, Fantom, NEAR

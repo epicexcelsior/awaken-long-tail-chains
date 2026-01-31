@@ -10,7 +10,8 @@ export type ChainId =
   | "fantom"
   | "flow"
   | "ronin"
-  | "celestia";
+  | "celestia"
+  | "tezos";
 
 // Chain Configuration
 export interface ChainConfig {
@@ -165,6 +166,8 @@ export interface ParsedTransaction {
   currency2?: string;
   fee: string;
   feeCurrency: string;
+  fiatAmount?: string; // USD value of the transaction amount
+  fiatCurrency?: string; // Usually "USD"
   memo: string;
   status: "success" | "failed";
   chain: ChainId;

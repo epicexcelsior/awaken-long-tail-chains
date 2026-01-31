@@ -4,10 +4,10 @@ import {
   TransactionType,
   ChainId,
 } from "../types";
+import { getApiKey } from "../utils/apiKeys";
 
 const CHAIN_ID: ChainId = "celo";
 const CHAIN_ID_NUM = "42220"; // Celo Mainnet chain ID for Etherscan v2
-const API_KEY = "39SMAR4FE2B41TQI5MDQ4PNDM5BG4HSP7J";
 const BASE_URL = "https://api.etherscan.io/v2/api";
 
 // Rate limiting: 3 requests/sec = 333ms minimum, using 350ms for safety
@@ -199,7 +199,7 @@ async function fetchWithPagination<T>(
   let hasMore = true;
 
   while (hasMore && page <= MAX_PAGES) {
-    const url = `${BASE_URL}?module=account&action=${action}&address=${address}&chainid=${CHAIN_ID_NUM}&page=${page}&offset=${PAGE_SIZE}&sort=desc&apikey=${API_KEY}`;
+    const url = `${BASE_URL}?module=account&action=${action}&address=${address}&chainid=${CHAIN_ID_NUM}&page=${page}&offset=${PAGE_SIZE}&sort=desc&apikey=${getApiKey("celo")}`;
 
     console.log(`[Celo] Fetching ${typeLabel} page ${page}...`);
 
@@ -768,10 +768,40 @@ export function parseTransaction(
     // Handle native CELO transfer
     if (message.amount && Array.isArray(message.amount) && message.amount.length > 0) {
       const rawAmount = message.amount[0].amount;
+      const denom = message.amount[0].denom;
+      
       if (rawAmount && rawAmount !== "0") {
-        // Convert from wei (10^18) to CELO
-        const num = parseFloat(rawAmount) / 1e18;
-        amount = num.toFixed(6);
+        if (denom === "wei") {
+          // Native CELO: convert from wei (10^18)
+          const num = parseFloat(rawAmount) / 1e18;
+          amount = num.toFixed(6);
+          currency = "CELO";
+        } else {
+          // ERC20 token: use proper decimals from logs
+          let decimals = 18; // default
+          
+          // Look for token decimals in logs
+          if (tx.logs && tx.logs.length > 0) {
+            for (const log of tx.logs) {
+              if (log.events && Array.isArray(log.events)) {
+                for (const event of log.events) {
+                  if (event.type === "token_transfer" && event.attributes) {
+                    for (const attr of event.attributes) {
+                      if (attr.key === "decimals") {
+                        decimals = parseInt(attr.value) || 18;
+                      }
+                    }
+                  }
+                }
+              }
+            }
+          }
+          
+          // Convert using proper decimals
+          const num = parseFloat(rawAmount) / Math.pow(10, decimals);
+          amount = num.toFixed(6);
+          currency = denom;
+        }
         
         if (isOutgoing) {
           type = "send";

@@ -35,8 +35,10 @@ function convertToStandardFormat(
 
     let receivedQty = "";
     let receivedCurrency = "";
+    let receivedFiatAmount = "";
     let sentQty = "";
     let sentCurrency = "";
+    let sentFiatAmount = "";
     let receivedQty2 = "";
     let receivedCurrency2 = "";
     let sentQty2 = "";
@@ -45,6 +47,7 @@ function convertToStandardFormat(
     if (tx.type === "receive" || tx.type === "claim_rewards") {
       receivedQty = tx.amount;
       receivedCurrency = tx.currency;
+      receivedFiatAmount = tx.fiatAmount || "";
       // Handle secondary token for multi-asset receives (e.g., LP tokens)
       if (tx.amount2 && tx.currency2) {
         receivedQty2 = tx.amount2;
@@ -53,6 +56,7 @@ function convertToStandardFormat(
     } else if (tx.type === "send" || tx.type === "delegate") {
       sentQty = tx.amount;
       sentCurrency = tx.currency;
+      sentFiatAmount = tx.fiatAmount || "";
       // Handle secondary token for multi-asset sends
       if (tx.amount2 && tx.currency2) {
         sentQty2 = tx.amount2;
@@ -62,6 +66,7 @@ function convertToStandardFormat(
       // For swaps, we might have both sent and received
       sentQty = tx.amount;
       sentCurrency = tx.currency;
+      sentFiatAmount = tx.fiatAmount || "";
       if (tx.amount2 && tx.currency2) {
         receivedQty = tx.amount2;
         receivedCurrency = tx.currency2;
@@ -71,9 +76,11 @@ function convertToStandardFormat(
       if (tx.from.toLowerCase() === walletAddress.toLowerCase()) {
         sentQty = tx.amount;
         sentCurrency = tx.currency;
+        sentFiatAmount = tx.fiatAmount || "";
       } else {
         receivedQty = tx.amount;
         receivedCurrency = tx.currency;
+        receivedFiatAmount = tx.fiatAmount || "";
       }
     }
 
@@ -111,10 +118,10 @@ function convertToStandardFormat(
       Date: date,
       "Received Quantity": receivedQty,
       "Received Currency": receivedCurrency,
-      "Received Fiat Amount": "",
+      "Received Fiat Amount": receivedFiatAmount,
       "Sent Quantity": sentQty,
       "Sent Currency": sentCurrency,
-      "Sent Fiat Amount": "",
+      "Sent Fiat Amount": sentFiatAmount,
       "Received Quantity 2": receivedQty2,
       "Received Currency 2": receivedCurrency2,
       "Sent Quantity 2": sentQty2,

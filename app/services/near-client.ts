@@ -17,8 +17,9 @@ import {
  * Base URL: https://api.pikespeak.ai
  */
 
+import { getApiKey } from "../utils/apiKeys";
+
 const PIKESPEAK_BASE_URL = "https://api.pikespeak.ai";
-const PIKESPEAK_API_KEY = "3847be2e-2f13-48ec-86fd-e5d1751fcb09";
 
 // Maximum transactions per page for Pikespeak API
 const PAGE_SIZE = 50;
@@ -82,7 +83,7 @@ async function fetchAccountBalances(address: string): Promise<PikespeakBalanceRe
   const response = await fetch(url, {
     headers: {
       "accept": "application/json",
-      "x-api-key": PIKESPEAK_API_KEY,
+      "x-api-key": getApiKey("near") || "",
     },
   });
   
@@ -128,7 +129,7 @@ export async function fetchAllTransactionsClientSide(
       const response = await fetch(url, {
         headers: {
           "accept": "application/json",
-          "x-api-key": PIKESPEAK_API_KEY,
+          "x-api-key": getApiKey("near") || "",
         },
       });
       

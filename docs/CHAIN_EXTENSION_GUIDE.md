@@ -393,6 +393,88 @@ function formatDateForAwaken(date: Date): string {
 }
 ```
 
+### 7. USD/Fiat Value Extraction (Optional but Recommended)
+
+**Purpose:** Tax software needs fiat values to calculate cost basis and P&L. While not required (software can estimate), providing accurate historical values improves accuracy.
+
+**How to implement if API supports it:**
+
+```typescript
+// In convertTransaction() - capture quote data if available
+const usdQuote = item.quote?.usd || item.value_quote || null;
+const quoteRate = item.gas_quote_rate || null;
+
+// Store in logs
+if (usdQuote || quoteRate) {
+  logs.push({
+    msg_index: 0,
+    log: "Price quote",
+    events: [{
+      type: "usd_quote",
+      attributes: [
+        { key: "value_quote", value: String(usdQuote || "") },
+        { key: "gas_quote_rate", value: String(quoteRate || "") },
+      ],
+    }],
+  });
+}
+
+// In parseTransaction() - calculate and populate fiat values
+let fiatAmount = "";
+let fiatCurrency = "USD";
+
+// Extract USD quote from logs
+if (tx.logs) {
+  for (const log of tx.logs) {
+    if (log.events) {
+      for (const event of log.events) {
+        if (event.type === "usd_quote") {
+          // Use provided quote or calculate from rate
+          const valueQuote = /* extract from event.attributes */;
+          const gasQuoteRate = /* extract from event.attributes */;
+          
+          if (valueQuote) {
+            fiatAmount = parseFloat(valueQuote).toFixed(2);
+          } else if (gasQuoteRate && amount) {
+            const rate = parseFloat(gasQuoteRate);
+            const numAmount = parseFloat(amount);
+            if (rate > 0 && numAmount > 0) {
+              fiatAmount = (numAmount * rate).toFixed(2);
+            }
+          }
+        }
+      }
+    }
+  }
+}
+
+// Return with fiat fields
+return {
+  // ... other fields
+  fiatAmount,
+  fiatCurrency,
+};
+```
+
+**API Support Matrix:**
+
+| Chain | API | USD Support | Notes |
+|-------|-----|-------------|-------|
+| **Ronin** | GoldRush (Covalent) | ✅ Yes | Use `quote-currency=USD` param. Provides `value_quote`, `gas_quote`, `gas_quote_rate` |
+| **Tezos** | TzKT | ✅ Yes | Use `?quote=usd` param. Provides USD price per XTZ in `quote.usd` |
+| **Celestia** | Celenium | ❌ No | Free tier doesn't include price data |
+| **Celo** | Etherscan v2 | ❌ No | Requires PRO plan ($199+/mo) for `ethdailyprice` endpoint |
+| **Bitcoin** | Various | Varies | Most APIs provide historical prices |
+
+**Key Points:**
+- Only native token transfers typically have USD quotes
+- Token transfers rarely include historical USD values (would need separate price API)
+- If USD not available, leave `fiatAmount` empty - tax software will estimate
+- Format: Round to 2 decimal places for consistency
+
+**CSV Export:**
+The `csvExport.ts` will automatically populate `Received Fiat Amount` or `Sent Fiat Amount` based on `fiatAmount` field.
+
 ---
 
 ## Testing Checklist

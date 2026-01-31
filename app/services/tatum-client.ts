@@ -4,6 +4,9 @@ import {
   TransactionType,
   ChainId,
 } from "../types";
+import { getApiKey } from "../utils/apiKeys";
+
+const API_KEY = getApiKey("fantom") || "";
 
 /**
  * Blockscout/Etherscan-style API client for EVM chains

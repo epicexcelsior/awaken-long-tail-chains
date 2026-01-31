@@ -310,7 +310,7 @@ export function parseTransaction(
         const divisor = BigInt(10 ** NATIVE_DECIMALS);
         const whole = rawAmount / divisor;
         const remainder = rawAmount % divisor;
-        const fraction = Number(remainder) / NATIVE_DECIMALS;
+        const fraction = Number(remainder) / Math.pow(10, NATIVE_DECIMALS);
         amount = `${whole}.${fraction.toFixed(6).substring(2)}`;
       }
     }
@@ -323,7 +323,7 @@ export function parseTransaction(
     const divisor = BigInt(10 ** NATIVE_DECIMALS);
     const whole = rawFee / divisor;
     const remainder = rawFee % divisor;
-    const fraction = Number(remainder) / NATIVE_DECIMALS;
+    const fraction = Number(remainder) / Math.pow(10, NATIVE_DECIMALS);
     fee = `${whole}.${fraction.toFixed(8).substring(2)}`;
   }
 

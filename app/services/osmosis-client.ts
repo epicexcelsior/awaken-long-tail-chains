@@ -4,8 +4,10 @@ import {
   TransactionType,
   ChainId,
 } from "../types";
+import { getApiKey } from "../utils/apiKeys";
 
 const CHAIN_ID: ChainId = "osmosis";
+const MINTSCAN_API_KEY = getApiKey("mintscan") || "";
 
 /**
  * Client-side transaction fetcher with improved pagination

@@ -4,10 +4,10 @@ import {
   TransactionType,
   ChainId,
 } from "../types";
+import { getApiKey } from "../utils/apiKeys";
 
 const CHAIN_ID: ChainId = "ronin";
 const COVALENT_CHAIN_ID = "2020"; // Ronin mainnet chain ID
-const API_KEY = "cqt_rQX6pj3BJWcjjPWd7pWwgTDvk8PQ";
 
 // Common Ronin token address to symbol mapping for better cost basis matching
 const RONIN_TOKEN_MAP: Record<string, string> = {
@@ -83,7 +83,7 @@ async function fetchWithREST(
 
       const response = await fetch(url, {
         headers: {
-          Authorization: `Bearer ${API_KEY}`,
+          Authorization: `Bearer ${getApiKey("ronin")}`,
           Accept: "application/json",
         },
       });
@@ -151,6 +151,11 @@ function convertRESTTransaction(item: any): ChainTransaction | null {
     const gasPrice = item.gas_price || "0";
     const fee = (BigInt(gasSpent) * BigInt(gasPrice)).toString();
 
+    // Extract USD quote data if available (from quote-currency=USD parameter)
+    const valueQuote = item.value_quote; // USD value of native transfer
+    const gasQuote = item.gas_quote; // USD value of gas fee
+    const gasQuoteRate = item.gas_quote_rate; // RON/USD exchange rate
+
     // Build log events for token transfers - stored in logs instead of message
     const logEvents: any[] = [];
     if (item.log_events && Array.isArray(item.log_events)) {
@@ -166,25 +171,42 @@ function convertRESTTransaction(item: any): ChainTransaction | null {
       }
     }
 
+    // Build USD quote event if data available
+    const usdEvent = (valueQuote || gasQuoteRate) ? {
+      type: "usd_quote",
+      attributes: [
+        { key: "value_quote", value: valueQuote ? String(valueQuote) : "" },
+        { key: "gas_quote", value: gasQuote ? String(gasQuote) : "" },
+        { key: "gas_quote_rate", value: gasQuoteRate ? String(gasQuoteRate) : "" },
+      ],
+    } : null;
+
+    // Combine all events
+    const allEvents = [...logEvents.map((evt, idx) => ({
+      type: "token_transfer",
+      attributes: [
+        { key: "sender_address", value: evt.sender_address || "" },
+        { key: "token_symbol", value: evt.sender_contract_ticker_symbol || "" },
+        { key: "token_name", value: evt.sender_name || evt.sender_contract_label || "" },
+        { key: "decimals", value: String(evt.sender_contract_decimals || 18) },
+        { key: "decoded", value: JSON.stringify(evt.decoded || {}) },
+      ],
+    }))];
+    
+    if (usdEvent) {
+      allEvents.push(usdEvent);
+    }
+
     return {
       hash: item.tx_hash,
       height: String(item.block_height || 0),
       timestamp: item.block_signed_at || new Date().toISOString(),
       code: item.successful === false ? 1 : 0,
       chain: CHAIN_ID,
-      logs: logEvents.length > 0 ? [{
+      logs: allEvents.length > 0 ? [{
         msg_index: 0,
-        log: "Token transfers",
-        events: logEvents.map((evt, idx) => ({
-          type: "token_transfer",
-          attributes: [
-            { key: "sender_address", value: evt.sender_address || "" },
-            { key: "token_symbol", value: evt.sender_contract_ticker_symbol || "" },
-            { key: "token_name", value: evt.sender_name || evt.sender_contract_label || "" },
-            { key: "decimals", value: String(evt.sender_contract_decimals || 18) },
-            { key: "decoded", value: JSON.stringify(evt.decoded || {}) },
-          ],
-        })),
+        log: "Transaction data",
+        events: allEvents,
       }] : undefined,
       tx: {
         body: {
@@ -276,6 +298,8 @@ export function parseTransaction(
   let currency2 = "";
   let fee = "";
   let feeCurrency = "RON";
+  let fiatAmount = "";
+  let fiatCurrency = "USD";
   const tokenTransfers: Array<{ symbol: string; amount: string; from: string; to: string }> = [];
 
   if (message) {
@@ -377,6 +401,38 @@ export function parseTransaction(
     fee = feeNum.toFixed(8);
   }
 
+  // Extract USD quote data from logs
+  if (tx.logs && tx.logs.length > 0) {
+    for (const log of tx.logs) {
+      if (log.events && Array.isArray(log.events)) {
+        for (const event of log.events) {
+          if (event.type === "usd_quote" && event.attributes) {
+            const attrs: Record<string, string> = {};
+            for (const attr of event.attributes) {
+              attrs[attr.key] = attr.value;
+            }
+            
+            const valueQuote = attrs["value_quote"];
+            const gasQuoteRate = attrs["gas_quote_rate"];
+            
+            // If we have a value quote, use it directly
+            if (valueQuote && valueQuote !== "") {
+              fiatAmount = parseFloat(valueQuote).toFixed(2);
+            }
+            // Otherwise calculate from amount and rate
+            else if (gasQuoteRate && gasQuoteRate !== "" && amount && amount !== "") {
+              const rate = parseFloat(gasQuoteRate);
+              const numAmount = parseFloat(amount);
+              if (rate > 0 && numAmount > 0) {
+                fiatAmount = (numAmount * rate).toFixed(2);
+              }
+            }
+          }
+        }
+      }
+    }
+  }
+
   // Build comprehensive notes for cost basis tracking
   let notes = `${type} - ${tx.hash}`;
   
@@ -404,6 +460,8 @@ export function parseTransaction(
     currency2,
     fee,
     feeCurrency,
+    fiatAmount,
+    fiatCurrency,
     memo: notes,
     status: tx.code === 0 ? "success" : "failed",
     chain: CHAIN_ID,

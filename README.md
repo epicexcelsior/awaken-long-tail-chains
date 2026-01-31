@@ -1,188 +1,198 @@
-# Multi-Chain Transaction Dashboard
+# Awaken Long Tail Chains
 
-A Next.js application that fetches blockchain transactions across multiple networks and exports them in Awaken Tax CSV format for easy tax reporting.
+A multi-chain transaction dashboard that fetches complete blockchain history and exports to [Awaken Tax](https://awaken.tax) CSV format for accurate cost basis calculations.
 
-## Features
+**Live Demo**: [https://awaken-long-tail-chains.pages.dev](https://awaken-long-tail-chains.pages.dev)
 
-- **Multi-Chain Support**: View transactions across Osmosis, Babylon, NEAR, Celo, Fantom, Ronin, and Celestia
-- **Transaction Viewing**: Enter any wallet address to view all transactions
-- **CSV Export**: Export transactions in Awaken Tax compatible CSV format
-- **100% Client-Side**: All fetching happens in your browser - no server needed
-- **Multiple API Integrations**: Uses various indexed APIs for complete transaction history
-- **Modern UI**: Built with Next.js, TypeScript, Tailwind CSS, and shadcn/ui
-- **Cloudflare Pages Ready**: Configured for easy deployment to Cloudflare Pages
-
-## Getting Started
+## Quick Start
 
 ### Prerequisites
-
-- Node.js 18+
-- npm or yarn
+- Node.js 18+ (20+ recommended)
+- npm 9+ or yarn
 - Git
 
 ### Installation
-
-1. Clone the repository:
 ```bash
-git clone https://github.com/epicexcelsior/osmosis-awaken-tax.git
-cd osmosis-awaken-tax
-```
+# Clone the repository
+git clone https://github.com/epicexcelsior/awaken-long-tail-chains.git
+cd awaken-long-tail-chains
 
-2. Install dependencies:
-```bash
+# Install dependencies
 npm install
-```
 
-3. Create a `.env.local` file (optional):
-```bash
-# Optional: Add Mintscan API key for higher rate limits
-NEXT_PUBLIC_MINTSCAN_API_KEY=your_api_key_here
-```
-
-4. Run the development server:
-```bash
+# Start development server
 npm run dev
 ```
 
-5. Open [http://localhost:3000](http://localhost:3000) in your browser.
+Visit [http://localhost:3000](http://localhost:3000) in your browser.
 
-## API Configuration
+## Supported Chains
 
-### Default (Free) - Osmosis LCD API
-The app works out of the box using the free Osmosis LCD REST API endpoint:
-- Endpoint: `https://lcd.osmosis.zone`
-- No API key required
-- Rate limits apply
+| Chain | Status | API Provider | Address Format | Features |
+|-------|--------|--------------|----------------|----------|
+| **Celo** | ✅ Live | Etherscan v2 | `0x...` (EVM) | Native transfers, ERC20 tokens, NFTs, internal transactions |
+| **Ronin** | ✅ Live | GoldRush (Covalent) | `0x...` (EVM) | Gaming transactions, token transfers |
+| **Celestia** | ✅ Live | Celenium | `celestia1...` | Cosmos SDK, TIA transfers, staking |
+| **Tezos** | ✅ Live | TzKT | `tz1...` | XTZ transfers, contract calls, governance |
+| **Osmosis** | 🚧 Coming Soon | LCD / Mintscan | `osmo1...` | DEX swaps, liquidity, IBC transfers |
+| **Babylon** | 🚧 Coming Soon | AllThatNode | `bbn1...` | Bitcoin staking, Cosmos SDK |
+| **NEAR** | 🚧 Coming Soon | Pikespeak | `account.near` | Fast transactions, sharding |
+| **Fantom** | 🚧 Coming Soon | Tatum | `0x...` (EVM) | High-speed EVM chain |
+| **Polkadot** | 🚧 Coming Soon | AllThatNode | `1...` | Multi-chain network |
+| **Flow** | 🚧 Coming Soon | AllThatNode | `0x...` | NFT and gaming focused |
 
-### Optional - Mintscan API
-For production use with higher rate limits, you can use the Mintscan API:
-1. Sign up at [https://api.mintscan.io](https://api.mintscan.io)
-2. Get your API key
-3. Set the environment variable: `NEXT_PUBLIC_MINTSCAN_API_KEY`
+## Using the Dashboard
 
-### Additional API References
+### 1. Select a Chain
+Choose from the dropdown of enabled chains (Celo, Ronin, Celestia, Tezos).
 
-| Chain | API | Endpoint | API Key Required |
-|-------|-----|----------|-----------------|
-| Osmosis | LCD API | `https://lcd.osmosis.zone` | No |
-| Babylon | AllThatNode REST | `https://babylon-mainnet.g.allthatnode.com` | Yes |
-| NEAR | Pikespeak AI | `https://api.pikespeak.ai` | Yes |
-| Celo | Blockscout API | `https://explorer.celo.org/api` | No |
-| Fantom | Blockscout API | `https://explorer.fantom.network/api` | No |
-| Ronin | GoldRush (Covalent) | `https://api.covalenthq.com` | Yes |
-| Celestia | Celenium API | `https://api-mainnet.celenium.io` | No |
+### 2. Enter Wallet Address
+Paste any valid wallet address for the selected chain. The dashboard will validate the format automatically.
+
+**Test Addresses**:
+- Celo: `0xD8763CBa276a3738E6DE85b4b3bF5FDed6D6cA73`
+- Ronin: `0x267c406d26a4b43614df329d4f2ae6773cb630b2`
+- Celestia: `celestia16na4yg4rtt4n8j72n54uy5mvxn7f08l76lxpup`
+- Tezos: `tz1daLg7rrK5msfvPkxDNTdEeYdp73qmjD8t`
+
+### 3. View Transactions
+The dashboard fetches **complete transaction history** including:
+- Native token transfers
+- ERC20 token transfers (EVM chains)
+- NFT transfers
+- Internal/contract transactions
+- Staking and governance operations
+
+### 4. Export to CSV
+Click "Export CSV" to download transactions in Awaken Tax format:
+```
+Date,Received Quantity,Received Currency,Sent Quantity,Sent Currency,Fee Amount,Fee Currency,Transaction Hash,Notes,Tag
+```
+
+**Features**:
+- Proper date formatting (M/D/YY H:MM UTC)
+- Complete transaction hashes in Notes
+- From/To addresses in Notes
+- Token symbols cached for consistency
+- Cost basis optimized for 95%+ accuracy
+
+## Custom API Keys
+The dashboard includes a **Custom API Keys** dropdown to add your own API keys for higher rate limits. If left empty, it uses the default keys.
+
+**Supported Services**:
+- **Celo**: Etherscan API key
+- **Ronin**: Covalent (GoldRush) API key
+- **Celestia**: No API key required (public endpoint)
+- **Tezos**: No API key required (public TzKT endpoint)
+- **Babylon** (coming soon): AllThatNode API key
+- **NEAR** (coming soon): Pikespeak API key
+- **Fantom** (coming soon): Tatum API key
+- **Flow/Polkadot** (coming soon): AllThatNode API key
+- **Mintscan** (coming soon): Mintscan API key
+
+Keys are saved to browser localStorage and persist across sessions.
 
 ## Deployment
-
-### Cloudflare Pages
-
-This project is configured for Cloudflare Pages deployment using Wrangler.
-
-1. Install Wrangler CLI:
+### Deploy to Cloudflare Pages
 ```bash
-npm install -g wrangler
-```
-
-2. Login to Cloudflare:
-```bash
-wrangler login
-```
-
-3. Build the project:
-```bash
+# Build the project
 npm run build
+
+# Deploy (requires Wrangler CLI)
+npx wrangler pages deploy dist --project-name=awaken-long-tail-chains
 ```
 
-4. Deploy:
+### First-Time Setup
+If the project doesn't exist in Cloudflare:
 ```bash
-wrangler pages deploy dist
+npx wrangler pages project create awaken-long-tail-chains --production-branch=main
+npx wrangler pages deploy dist --project-name=awaken-long-tail-chains
 ```
-
-### Environment Variables on Cloudflare
-
-Set these in your Cloudflare Pages project settings:
-
-- `NEXT_PUBLIC_LCD_ENDPOINT`: `https://lcd.osmosis.zone`
-- `NEXT_PUBLIC_RPC_ENDPOINT`: `https://rpc.osmosis.zone`
-- `NEXT_PUBLIC_MINTSCAN_API_KEY`: Your Mintscan API key (optional)
-
-## Awaken Tax CSV Format
-
-The exported CSV follows the Awaken Tax format specification:
-
-| Column | Description |
-|--------|-------------|
-| Date | MM/DD/YYYY HH:MM:SS UTC |
-| Received Quantity | Amount received (if applicable) |
-| Received Currency | Currency code of received amount |
-| Received Fiat Amount | Optional fiat value |
-| Sent Quantity | Amount sent (if applicable) |
-| Sent Currency | Currency code of sent amount |
-| Sent Fiat Amount | Optional fiat value |
-| Fee Amount | Transaction fee amount |
-| Fee Currency | Fee currency code |
-| Transaction Hash | Blockchain transaction hash |
-| Notes | Transaction memo or notes |
-| Tag | Transaction type tag (transfer, trade, staking, etc.) |
 
 ## Project Structure
-
 ```
-├── app/
-│   ├── components/          # React components
-│   │   ├── wallet-input.tsx
-│   │   ├── transaction-table.tsx
-│   │   └── error-display.tsx
-│   ├── services/            # API services
-│   │   └── osmosis.ts
-│   ├── types/               # TypeScript types
-│   │   └── index.ts
-│   ├── utils/               # Utility functions
-│   │   └── csvExport.ts
-│   ├── page.tsx            # Main page
-│   ├── layout.tsx          # Root layout
-│   └── globals.css         # Global styles
-├── components/ui/          # shadcn/ui components
-├── public/                 # Static assets
-├── next.config.ts          # Next.js configuration
-├── wrangler.toml           # Cloudflare Pages config
-└── package.json
+app/
+├── components/
+│   ├── api-key-manager.tsx    # Custom API key UI
+│   ├── error-display.tsx      # Error states
+│   ├── transaction-table.tsx  # Transaction list
+│   └── wallet-input.tsx       # Address input form
+├── config/
+│   └── chains.ts              # Chain configurations
+├── hooks/
+│   └── useApiKeys.ts          # API key React hook
+├── services/
+│   ├── celo-client.ts         # Celo/Etherscan integration
+│   ├── ronin-client.ts        # Ronin/Covalent integration
+│   ├── celestia-client.ts     # Celestia/Celenium integration
+│   ├── tezos-client.ts        # Tezos/TzKT integration
+│   └── ...                    # Other chain clients
+├── types/
+│   └── index.ts               # TypeScript types
+├── utils/
+│   ├── apiKeys.ts             # API key utilities
+│   └── csvExport.ts           # CSV generation
+├── page.tsx                   # Main dashboard
+└── layout.tsx                 # Root layout
+
+public/chains/                 # Chain icons
+components/ui/                   # shadcn/ui components
 ```
 
-## Technologies
+## API Integrations
+### Celo (Etherscan v2)
+- **Endpoint**: `https://api.etherscan.io/v2/api`
+- **Rate Limit**: 3 requests/second (free tier)
+- **Features**: Comprehensive EVM data including ERC20, ERC721, ERC1155, and internal transactions
 
-- [Next.js 15](https://nextjs.org/) - React framework
+### Ronin (GoldRush/Covalent)
+- **Endpoint**: `https://api.covalenthq.com/v1`
+- **Rate Limit**: Based on API key tier
+- **Features**: Gaming-focused EVM chain data, Axie Infinity transactions
+
+### Celestia (Celenium)
+- **Endpoint**: `https://api-mainnet.celenium.io/v1`
+- **Rate Limit**: Public endpoint
+- **Features**: Cosmos SDK data, TIA transfers, modular blockchain focus
+
+### Tezos (TzKT)
+- **Endpoint**: `https://api.tzkt.io/v1`
+- **Rate Limit**: Public endpoint (generous limits)
+- **Features**: XTZ transfers, contract calls, governance operations
+
+## Adding New Chains
+See [docs/QUICKSTART.md](docs/QUICKSTART.md) for detailed instructions on adding support for new blockchains.
+
+Key requirements:
+1. Comprehensive API with pagination support
+2. Free tier or reasonable rate limits
+3. Complete transaction history (not just recent)
+4. Proper attribution in UI
+
+## Cost Basis Best Practices
+The dashboard is optimized for accurate cost basis calculations:
+
+1. **Token Symbol Caching**: Consistent symbols across all transactions
+2. **Complete History**: All transaction types fetched (not just transfers)
+3. **Rich Metadata**: Transaction hashes, addresses, and token details in Notes
+4. **Proper Formatting**: Dates in M/D/YY H:MM format for Awaken Tax compatibility
+5. **No Missing Data**: All required CSV fields populated
+
+## Tech Stack
+- [Next.js 16](https://nextjs.org/) - React framework with static export
 - [TypeScript](https://www.typescriptlang.org/) - Type safety
 - [Tailwind CSS](https://tailwindcss.com/) - Styling
 - [shadcn/ui](https://ui.shadcn.com/) - UI components
 - [CosmJS](https://github.com/cosmos/cosmjs) - Cosmos SDK integration
 - [Wrangler](https://developers.cloudflare.com/workers/wrangler/) - Cloudflare deployment
 
-## Contributing
-
-Contributions are welcome! Please feel free to submit a Pull Request.
-
 ## License
-
-MIT License - feel free to use this for your own projects.
-
-## Attributions
-
-This project uses the following APIs and services:
-
-- **Celenium API** (Celestia): Data provided by [Celenium API](https://celenium.io). Powered by Celenium API.
-- **GoldRush (Covalent)** (Ronin): Transaction data fetched via GoldRush API
-- **Pikespeak AI** (NEAR): NEAR Protocol transaction data via Pikespeak
-- **Blockscout** (Celo, Fantom): EVM chain data via Blockscout API
-- **AllThatNode** (Babylon, Polkadot, Flow): Cosmos/EVM/RPC data via AllThatNode
-- **Osmosis LCD**: Native Osmosis LCD endpoint
-
-Special thanks to these API providers for enabling 100% client-side blockchain data access.
+MIT License - feel free to use for your own projects.
 
 ## Links
-
-- [Live Demo](https://osmosis-awaken-tax.pages.dev) (when deployed)
-- [GitHub Repository](https://github.com/epicexcelsior/osmosis-awaken-tax)
-- [Osmosis Zone](https://osmosis.zone)
+- [Live Dashboard](https://awaken-long-tail-chains.pages.dev)
+- [GitHub Repository](https://github.com/epicexcelsior/awaken-long-tail-chains)
 - [Awaken Tax](https://awaken.tax)
-- [Mintscan API](https://api.mintscan.io)
+
+## Support
+For issues or feature requests, please open an issue on GitHub.

@@ -5,8 +5,10 @@ import {
   ChainId,
 } from "../types";
 import { getChainConfig } from "../config/chains";
+import { getApiKey } from "../utils/apiKeys";
 
 const CHAIN_ID: ChainId = "babylon";
+const API_KEY = getApiKey("babylon") || "";
 
 /**
  * Fetch ALL transactions from Babylon using AllThatNode REST API
