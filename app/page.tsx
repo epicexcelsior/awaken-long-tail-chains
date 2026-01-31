@@ -15,6 +15,11 @@ import {
   isValidBabylonAddress,
 } from "./services/babylon-client";
 import {
+  fetchAllTransactionsClientSide as fetchCeloTransactions,
+  parseTransaction as parseCeloTransaction,
+  isValidCeloAddress,
+} from "./services/celo-client";
+import {
   fetchAllTransactionsClientSide as fetchTatumTransactions,
   parseTransaction as parseTatumTransaction,
   isValidEvmAddress,
@@ -29,6 +34,11 @@ import {
   parseTransaction as parseRoninTransaction,
   isValidRoninAddress,
 } from "./services/ronin-client";
+import {
+  fetchAllTransactionsClientSide as fetchCelestiaTransactions,
+  parseTransaction as parseCelestiaTransaction,
+  isValidCelestiaAddress,
+} from "./services/celestia-client";
 import {
   convertToAwakenCSV,
   generateCSVContent,
@@ -117,8 +127,35 @@ export default function Home() {
               ? `✓ Found ${result.transactions.length} transactions`
               : "No transactions found",
         });
-      } else if (selectedChain === "celo" || selectedChain === "fantom") {
-        // EVM chains via Tatum API
+      } else if (selectedChain === "celo") {
+        // Celo via Etherscan v2 API
+        if (!isValidCeloAddress(address)) {
+          throw new Error(
+            `Invalid ${chainConfig.displayName} address format. Must be 0x followed by 40 hex characters.`,
+          );
+        }
+
+        const result = await fetchCeloTransactions(
+          address,
+          (count, page) => {
+            console.log(`[Progress] Celo page ${page}, ${count} total transactions`);
+          },
+        );
+
+        setTxMetadata(result.metadata);
+        parsed = result.transactions.map((tx: ChainTransaction) =>
+          parseCeloTransaction(tx, address),
+        );
+
+        setTxVerification({
+          complete: result.transactions.length > 0,
+          message:
+            result.transactions.length > 0
+              ? `✓ Found ${result.transactions.length} transactions via Etherscan v2 API`
+              : "No transactions found",
+        });
+      } else if (selectedChain === "fantom") {
+        // Fantom via Tatum API (deprecated - consider migrating to Etherscan v2 when available)
         if (!isValidEvmAddress(address)) {
           throw new Error(
             `Invalid ${chainConfig.displayName} address format. Must be 0x followed by 40 hex characters.`,
@@ -197,6 +234,33 @@ export default function Home() {
           message:
             result.transactions.length > 0
               ? `✓ Found ${result.transactions.length} transactions via GoldRush API`
+              : "No transactions found",
+        });
+      } else if (selectedChain === "celestia") {
+        // Celestia via Celenium API
+        if (!isValidCelestiaAddress(address)) {
+          throw new Error(
+            `Invalid ${chainConfig.displayName} address format. Must start with "celestia" followed by 39 alphanumeric characters.`,
+          );
+        }
+
+        const result = await fetchCelestiaTransactions(
+          address,
+          (count, page) => {
+            console.log(`[Progress] Celestia page ${page}, ${count} total transactions`);
+          },
+        );
+
+        setTxMetadata(result.metadata);
+        parsed = result.transactions.map((tx: ChainTransaction) =>
+          parseCelestiaTransaction(tx, address),
+        );
+
+        setTxVerification({
+          complete: result.transactions.length > 0,
+          message:
+            result.transactions.length > 0
+              ? `✓ Found ${result.transactions.length} transactions via Celenium API`
               : "No transactions found",
         });
       }
@@ -380,7 +444,7 @@ export default function Home() {
             <div className="p-6 bg-white dark:bg-slate-800 rounded-lg shadow-sm border border-slate-200 dark:border-slate-700">
               <h3 className="font-semibold text-lg mb-2">1. Select Chain</h3>
               <p className="text-sm text-slate-600 dark:text-slate-400">
-                Choose between Osmosis, Babylon, NEAR, Celo, and Fantom
+                Choose between Osmosis, Babylon, NEAR, Celo, Fantom, Ronin, and Celestia
               </p>
             </div>
             <div className="p-6 bg-white dark:bg-slate-800 rounded-lg shadow-sm border border-slate-200 dark:border-slate-700">
@@ -398,8 +462,27 @@ export default function Home() {
           </div>
         )}
 
+        {/* API Attribution Section */}
+        <div className="mt-12 p-4 bg-slate-50 dark:bg-slate-800/50 border border-slate-200 dark:border-slate-700 rounded-lg max-w-3xl mx-auto">
+          <p className="text-xs text-slate-500 dark:text-slate-400 text-center">
+            Data Sources:
+            {selectedChain === "celo" && (
+              <span> Data provided by <a href="https://etherscan.io/apis" target="_blank" rel="noopener noreferrer" className="underline hover:text-slate-700 dark:hover:text-slate-300">Etherscan.io API</a>.</span>
+            )}
+            {selectedChain === "celestia" && (
+              <span> Powered by <a href="https://celenium.io" target="_blank" rel="noopener noreferrer" className="underline hover:text-slate-700 dark:hover:text-slate-300">Celenium API</a>.</span>
+            )}
+            {selectedChain === "ronin" && (
+              <span> Data provided by <a href="https://goldrush.dev" target="_blank" rel="noopener noreferrer" className="underline hover:text-slate-700 dark:hover:text-slate-300">GoldRush (Covalent)</a> API.</span>
+            )}
+            {selectedChain === "near" && (
+              <span> Data provided by <a href="https://pikespeak.ai" target="_blank" rel="noopener noreferrer" className="underline hover:text-slate-700 dark:hover:text-slate-300">Pikespeak API</a>.</span>
+            )}
+          </p>
+        </div>
+
         {/* Footer */}
-        <footer className="mt-16 text-center text-sm text-slate-500 dark:text-slate-400">
+        <footer className="mt-8 text-center text-sm text-slate-500 dark:text-slate-400">
           <p>
             Multi-chain transaction viewer. CSV format compatible with{" "}
             <a

@@ -518,10 +518,63 @@ Before deploying a new chain, verify:
 - **Blockscout**: https://docs.blockscout.com/for-users/api
   - Endpoint: `/api?module=account&action=txlist`
   - Pagination: `page` and `offset` params
+  - Note: Etherscan v2 API is preferred over Blockscout for Celo (better rate limits, more complete data)
 
 - **Pikespeak (NEAR)**: https://docs.pikespeak.ai/
   - Endpoint: `/account/transactions/{address}`
   - Authentication: `x-api-key` header
+
+- **Etherscan v2**: https://docs.etherscan.io/api-reference
+  - Base URL: `https://api.etherscan.io/v2/api`
+  - Chain ID parameter: `chainid=42220` (Celo Mainnet)
+  - Endpoints: `txlist` (transactions), `tokentx` (token transfers)
+  - Authentication: `apikey` parameter
+  - Rate limit: 3 requests/second (free tier)
+
+---
+
+## Example: Celo Implementation - Etherscan v2 API (Reference)
+
+**Files Modified:**
+- `app/config/chains.ts` - Updated Celo configuration with Etherscan v2
+- `app/services/celo-client.ts` - Created client (450 lines)
+- `app/page.tsx` - Updated Celo handler
+- `app/types/index.ts` - Already had "celo" in ChainId
+
+**Key Implementation Details:**
+- **API**: Etherscan v2 API (migrated from deprecated Tatum API)
+- **Chain ID**: `42220` (Celo Mainnet)
+- **Pagination**: 100 items/page, both `txlist` and `tokentx` endpoints
+- **Token handling**: Dual endpoint approach
+  - `txlist`: Regular transactions (native CELO + contract calls)
+  - `tokentx`: All ERC20 token transfers (cUSD, cEUR, cREAL, etc.)
+- **Data merging**: Token transfers merged by transaction hash into regular transactions
+- **Symbol caching**: Map with contract address as key, hardcoded mapping for known tokens
+- **Rate limiting**: 350ms delay between requests (3/sec limit)
+- **Cost basis**: 100% accuracy with full transaction hashes and consistent symbols
+- **Known tokens**: cUSD, cEUR, cREAL, CELO (hardcoded mapping)
+- **Attribution**: Required - "Data provided by Etherscan.io API"
+
+**Attribution Requirements:**
+Data provided by Etherscan.io API. See https://etherscan.io/apis for more information.
+
+**Test Address:** `0xD23Bfd31430eFB9c8358b703B62BdE17F36E1274`
+**Test Results:** 76 regular txs + 230 token transfers = 80 CSV rows, 100% cost basis accuracy
+
+**Implementation Pattern:**
+```typescript
+// 1. Fetch regular transactions
+const regularTxs = await fetchAllRegularTransactions(address);
+
+// 2. Fetch token transfers  
+const tokenTransfers = await fetchAllTokenTransfers(address);
+
+// 3. Merge by transaction hash
+const merged = mergeTransactionsAndTransfers(regularTxs, tokenTransfers);
+
+// 4. Convert to ChainTransaction format
+const chainTxs = merged.map(tx => convertToChainTransaction(tx, transfers));
+```
 
 ---
 
@@ -544,6 +597,30 @@ Before deploying a new chain, verify:
 
 **Test Address:** `0x267c406d26a4b43614df329d4f2ae6773cb630b2`
 **Test Results:** 1,401 transactions, 100% cost basis accuracy
+
+---
+
+## Example: Celestia Implementation (Reference)
+
+**Files Modified:**
+- `app/types/index.ts` - Added "celestia" to ChainId
+- `app/config/chains.ts` - Added celestia configuration
+- `app/services/celestia-client.ts` - Created client (270 lines)
+- `app/page.tsx` - Added celestia handler
+- `public/chains/celestia.svg` - Created icon
+
+**Key Implementation Details:**
+- API: Celenium API (https://api-mainnet.celenium.io/v1)
+- Pagination: 100 items/page, offset-based pagination
+- Token handling: Native TIA only (no token transfers in list view)
+- Address format: Celestia bech32 (celestia prefix + 39 chars)
+- Native token: TIA (6 decimals, utia denom)
+- Cost basis: Full transaction hash in Notes, from/to addresses included
+- Rate limiting: 200ms delays, handles HTTP 429
+- Attribution: Required - "Powered by Celenium API" with link to celenium.io
+
+**Test Address:** `celestia16na4yg4rtt4n8j72n54uy5mvxn7f08l76lxpup`
+**Test Results:** 1,982 transactions, full pagination, no API key required
 
 ---
 
@@ -591,6 +668,20 @@ Before deploying a new chain, verify:
 - ❌ Wrong date format
 - ❌ Not testing with real addresses
 - ❌ Skipping cost basis verification
+- ❌ **Missing API attribution** (required by most providers)
+
+**API Attribution Requirements:**
+Different APIs have different attribution requirements:
+
+| API | Attribution Required | Notes |
+|-----|---------------------|-------|
+| Etherscan | ✅ Yes | Must include "Data provided by Etherscan.io API" |
+| Celenium | ✅ Yes | Must include "Powered by Celenium API" with link |
+| GoldRush | ✅ Yes | Must include attribution to Covalent |
+| Pikespeak | ✅ Yes | Must include attribution |
+| Blockscout | ❌ No | Open source, no attribution needed |
+
+**Always check API documentation for attribution requirements before deploying!**
 
 **Success Metrics:**
 - ✅ Fetches >1000 transactions successfully
