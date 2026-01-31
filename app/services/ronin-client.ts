@@ -9,6 +9,15 @@ const CHAIN_ID: ChainId = "ronin";
 const COVALENT_CHAIN_ID = "2020"; // Ronin mainnet chain ID
 const API_KEY = "cqt_rQX6pj3BJWcjjPWd7pWwgTDvk8PQ";
 
+// Common Ronin token address to symbol mapping for better cost basis matching
+const RONIN_TOKEN_MAP: Record<string, string> = {
+  // Add known tokens here if needed
+  // Format: "0x...": "SYMBOL"
+};
+
+// Cache for token metadata to ensure consistent symbol usage
+const tokenMetadataCache: Map<string, { symbol: string; decimals: number; name: string }> = new Map();
+
 /**
  * Fetch ALL transactions from Ronin using GoldRush REST API
  * Comprehensive pagination to ensure we get complete history
@@ -152,6 +161,7 @@ function convertRESTTransaction(item: any): ChainTransaction | null {
           sender_contract_ticker_symbol: event.sender_contract_ticker_symbol,
           sender_address: event.sender_address,
           decoded: event.decoded,
+          sender_contract_label: event.sender_contract_label,
         });
       }
     }
@@ -170,6 +180,7 @@ function convertRESTTransaction(item: any): ChainTransaction | null {
           attributes: [
             { key: "sender_address", value: evt.sender_address || "" },
             { key: "token_symbol", value: evt.sender_contract_ticker_symbol || "" },
+            { key: "token_name", value: evt.sender_name || evt.sender_contract_label || "" },
             { key: "decimals", value: String(evt.sender_contract_decimals || 18) },
             { key: "decoded", value: JSON.stringify(evt.decoded || {}) },
           ],
@@ -214,12 +225,47 @@ export function isValidRoninAddress(address: string): boolean {
   return /^0x[a-fA-F0-9]{40}$/.test(address);
 }
 
+/**
+ * Get standardized token symbol from various sources
+ * Ensures consistent token identification for cost basis matching
+ */
+function getTokenSymbol(senderAddress: string, tickerSymbol: string | null, tokenName: string | null): string {
+  const address = senderAddress?.toLowerCase() || "";
+  
+  // Check cache first for consistency
+  if (tokenMetadataCache.has(address)) {
+    return tokenMetadataCache.get(address)!.symbol;
+  }
+  
+  // Use provided ticker symbol if available and valid
+  if (tickerSymbol && tickerSymbol.length > 0 && tickerSymbol !== "null" && tickerSymbol !== "undefined") {
+    // Cache it for future consistency
+    tokenMetadataCache.set(address, {
+      symbol: tickerSymbol,
+      decimals: 18,
+      name: tokenName || tickerSymbol
+    });
+    return tickerSymbol;
+  }
+  
+  // Check hardcoded mapping
+  if (RONIN_TOKEN_MAP[address]) {
+    return RONIN_TOKEN_MAP[address];
+  }
+  
+  // Fall back to shortened address with 0x prefix for traceability
+  // This ensures the same token always has the same identifier
+  const shortAddr = address.slice(0, 10);
+  return shortAddr;
+}
+
 export function parseTransaction(
   tx: ChainTransaction,
   walletAddress: string,
 ): ParsedTransaction {
   const messages = tx.tx?.body?.messages || [];
   const message = messages[0];
+  const walletLower = walletAddress.toLowerCase();
 
   let type: TransactionType = "unknown";
   let from = "";
@@ -230,24 +276,29 @@ export function parseTransaction(
   let currency2 = "";
   let fee = "";
   let feeCurrency = "RON";
+  const tokenTransfers: Array<{ symbol: string; amount: string; from: string; to: string }> = [];
 
   if (message) {
     from = message.from_address || "";
     to = message.to_address || "";
+    const fromLower = from.toLowerCase();
+    const toLower = to.toLowerCase();
 
-    // Determine transaction type
-    const isIncoming = from.toLowerCase() !== walletAddress.toLowerCase();
-    const isOutgoing = to.toLowerCase() !== walletAddress.toLowerCase();
+    // Determine transaction type based on wallet involvement
+    const isOutgoing = fromLower === walletLower;
+    const isIncoming = toLower === walletLower;
 
     if (isIncoming && !isOutgoing) {
       type = "receive";
     } else if (isOutgoing && !isIncoming) {
       type = "send";
+    } else if (isOutgoing && isIncoming) {
+      type = "send"; // Self-transfer
     } else {
-      type = "send"; // Default to send if both match or neither match
+      type = "receive"; // Default if wallet is involved somehow
     }
 
-    // Handle native token transfer
+    // Handle native RON transfer
     if (message.amount && Array.isArray(message.amount) && message.amount.length > 0) {
       const rawAmount = message.amount[0].amount;
       if (rawAmount && rawAmount !== "0") {
@@ -257,7 +308,7 @@ export function parseTransaction(
       }
     }
 
-    // Handle token transfers from logs (previously log_events)
+    // Handle ALL token transfers from logs for complete history
     if (tx.logs && tx.logs.length > 0) {
       for (const log of tx.logs) {
         if (log.events && Array.isArray(log.events)) {
@@ -268,7 +319,10 @@ export function parseTransaction(
                 attrs[attr.key] = attr.value;
               }
 
-              const tokenSymbol = attrs["token_symbol"] || attrs["sender_address"]?.slice(0, 8) || "TOKEN";
+              const senderAddress = attrs["sender_address"] || "";
+              const tickerSymbol = attrs["token_symbol"] || null;
+              const tokenName = attrs["token_name"] || null;
+              const tokenSymbol = getTokenSymbol(senderAddress, tickerSymbol, tokenName);
               const decodedStr = attrs["decoded"] || "{}";
               let decoded: any = {};
               try {
@@ -277,22 +331,35 @@ export function parseTransaction(
                 // Ignore parse error
               }
 
-              // Try to extract transfer value from decoded data
+              // Extract transfer details from decoded data
               if (decoded && decoded.name === "Transfer" && decoded.params) {
                 const valueParam = decoded.params.find((p: any) => p.name === "value");
+                const fromParam = decoded.params.find((p: any) => p.name === "from")?.value;
+                const toParam = decoded.params.find((p: any) => p.name === "to")?.value;
+                
                 if (valueParam && valueParam.value) {
                   const decimals = parseInt(attrs["decimals"] || "18", 10);
                   const tokenAmount = parseFloat(valueParam.value) / Math.pow(10, decimals);
+                  
+                  // Store for potential use as primary or secondary
+                  tokenTransfers.push({
+                    symbol: tokenSymbol,
+                    amount: tokenAmount.toFixed(6),
+                    from: fromParam || "",
+                    to: toParam || ""
+                  });
 
-                  // Determine if this is the primary or secondary asset
-                  if (!amount2 && amount && amount !== "0") {
-                    // Already have native amount, this is secondary
-                    amount2 = tokenAmount.toFixed(6);
-                    currency2 = tokenSymbol;
-                  } else if (!amount || amount === "0") {
-                    // No native amount yet, use this as primary
+                  // If no native RON amount, use first token as primary
+                  if (!amount || amount === "0") {
                     amount = tokenAmount.toFixed(6);
                     currency = tokenSymbol;
+                    // Update from/to if token transfer has better info
+                    if (fromParam) from = fromParam;
+                    if (toParam) to = toParam;
+                  } else if (!amount2) {
+                    // Use as secondary if we already have native amount
+                    amount2 = tokenAmount.toFixed(6);
+                    currency2 = tokenSymbol;
                   }
                 }
               }
@@ -310,6 +377,20 @@ export function parseTransaction(
     fee = feeNum.toFixed(8);
   }
 
+  // Build comprehensive notes for cost basis tracking
+  let notes = `${type} - ${tx.hash}`;
+  
+  // Add token transfer details to notes if multiple transfers
+  if (tokenTransfers.length > 0) {
+    const transferSummary = tokenTransfers.map(t => `${t.amount} ${t.symbol}`).join(", ");
+    notes += ` [Tokens: ${transferSummary}]`;
+  }
+  
+  // Add memo if present and not empty
+  if (tx.tx?.body?.memo && tx.tx.body.memo.length > 0) {
+    notes += ` (${tx.tx.body.memo})`;
+  }
+
   return {
     hash: tx.hash,
     timestamp: new Date(tx.timestamp),
@@ -323,7 +404,7 @@ export function parseTransaction(
     currency2,
     fee,
     feeCurrency,
-    memo: tx.tx?.body?.memo || "",
+    memo: notes,
     status: tx.code === 0 ? "success" : "failed",
     chain: CHAIN_ID,
   };

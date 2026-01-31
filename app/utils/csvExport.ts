@@ -37,13 +37,27 @@ function convertToStandardFormat(
     let receivedCurrency = "";
     let sentQty = "";
     let sentCurrency = "";
+    let receivedQty2 = "";
+    let receivedCurrency2 = "";
+    let sentQty2 = "";
+    let sentCurrency2 = "";
 
     if (tx.type === "receive" || tx.type === "claim_rewards") {
       receivedQty = tx.amount;
       receivedCurrency = tx.currency;
+      // Handle secondary token for multi-asset receives (e.g., LP tokens)
+      if (tx.amount2 && tx.currency2) {
+        receivedQty2 = tx.amount2;
+        receivedCurrency2 = tx.currency2;
+      }
     } else if (tx.type === "send" || tx.type === "delegate") {
       sentQty = tx.amount;
       sentCurrency = tx.currency;
+      // Handle secondary token for multi-asset sends
+      if (tx.amount2 && tx.currency2) {
+        sentQty2 = tx.amount2;
+        sentCurrency2 = tx.currency2;
+      }
     } else if (tx.type === "swap") {
       // For swaps, we might have both sent and received
       sentQty = tx.amount;
@@ -78,6 +92,21 @@ function convertToStandardFormat(
       unknown: "",
     };
 
+    // Build comprehensive notes for cost basis tracking
+    let notes = tx.memo || `${tx.type}`;
+    
+    // Always include full transaction hash for matching
+    if (!notes.includes(tx.hash)) {
+      notes = `${notes} [TX: ${tx.hash}]`;
+    }
+    
+    // Add from/to addresses for better tracking
+    if (tx.from && tx.to) {
+      const shortFrom = tx.from.slice(0, 8);
+      const shortTo = tx.to.slice(0, 8);
+      notes = `${notes} (${shortFrom}... -> ${shortTo}...)`;
+    }
+
     return {
       Date: date,
       "Received Quantity": receivedQty,
@@ -86,13 +115,13 @@ function convertToStandardFormat(
       "Sent Quantity": sentQty,
       "Sent Currency": sentCurrency,
       "Sent Fiat Amount": "",
-      "Received Quantity 2": "",
-      "Received Currency 2": "",
-      "Sent Quantity 2": "",
-      "Sent Currency 2": "",
+      "Received Quantity 2": receivedQty2,
+      "Received Currency 2": receivedCurrency2,
+      "Sent Quantity 2": sentQty2,
+      "Sent Currency 2": sentCurrency2,
       "Fee Amount": tx.fee,
       "Fee Currency": tx.feeCurrency,
-      Notes: tx.memo || `${tx.type} - ${tx.hash.slice(0, 8)}`,
+      Notes: notes,
       Tag: tagMap[tx.type] || "",
     };
   });
