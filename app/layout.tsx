@@ -13,9 +13,9 @@ const geistMono = Geist_Mono({
 });
 
 export const metadata: Metadata = {
-  title: "Osmosis Awaken Tax | Transaction Viewer",
-  description: "View Osmosis blockchain transactions and export to Awaken Tax CSV format",
-  keywords: "osmosis, cosmos, blockchain, crypto tax, awaken tax, csv export",
+  title: "Multi-Chain Transaction Dashboard",
+  description: "View blockchain transactions across multiple chains and export to Awaken Tax CSV format",
+  keywords: "blockchain, crypto tax, awaken tax, csv export, multi-chain, ethereum, celo, ronin",
 };
 
 export default function RootLayout({
@@ -24,9 +24,9 @@ export default function RootLayout({
   children: React.ReactNode;
 }>) {
   return (
-    <html lang="en">
+    <html lang="en" className="dark">
       <body
-        className={`${geistSans.variable} ${geistMono.variable} antialiased`}
+        className={`${geistSans.variable} ${geistMono.variable} antialiased bg-[#1a1a1a] text-white`}
       >
         {children}
       </body>
