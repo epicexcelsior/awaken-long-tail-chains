@@ -8,7 +8,8 @@ export type ChainId =
   | "polkadot"
   | "celo"
   | "fantom"
-  | "flow";
+  | "flow"
+  | "ronin";
 
 // Chain Configuration
 export interface ChainConfig {

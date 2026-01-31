@@ -20,6 +20,16 @@ import {
   isValidEvmAddress,
 } from "./services/tatum-client";
 import {
+  fetchAllTransactionsClientSide as fetchNearTransactions,
+  parseTransaction as parseNearTransaction,
+  isValidNearAddress,
+} from "./services/near-client";
+import {
+  fetchAllTransactionsClientSide as fetchRoninTransactions,
+  parseTransaction as parseRoninTransaction,
+  isValidRoninAddress,
+} from "./services/ronin-client";
+import {
   convertToAwakenCSV,
   generateCSVContent,
   downloadCSV,
@@ -133,6 +143,60 @@ export default function Home() {
           message:
             result.transactions.length > 0
               ? `✓ Found ${result.transactions.length} transactions via Tatum API`
+              : "No transactions found",
+        });
+      } else if (selectedChain === "near") {
+        // NEAR Protocol via Pikespeak API
+        if (!isValidNearAddress(address)) {
+          throw new Error(
+            `Invalid ${chainConfig.displayName} address format. Must be a named account (e.g., alice.near) or 64-character hex address.`,
+          );
+        }
+
+        const result = await fetchNearTransactions(
+          address,
+          (count, page) => {
+            console.log(`[Progress] NEAR page ${page}, ${count} total transactions`);
+          },
+        );
+
+        setTxMetadata(result.metadata);
+        parsed = result.transactions.map((tx: ChainTransaction) =>
+          parseNearTransaction(tx, address),
+        );
+
+        setTxVerification({
+          complete: result.transactions.length > 0,
+          message:
+            result.transactions.length > 0
+              ? `✓ Found ${result.transactions.length} transactions via Pikespeak API`
+              : "No transactions found",
+        });
+      } else if (selectedChain === "ronin") {
+        // Ronin via GoldRush API
+        if (!isValidRoninAddress(address)) {
+          throw new Error(
+            `Invalid ${chainConfig.displayName} address format. Must be 0x followed by 40 hex characters.`,
+          );
+        }
+
+        const result = await fetchRoninTransactions(
+          address,
+          (count, page) => {
+            console.log(`[Progress] Ronin page ${page}, ${count} total transactions`);
+          },
+        );
+
+        setTxMetadata(result.metadata);
+        parsed = result.transactions.map((tx: ChainTransaction) =>
+          parseRoninTransaction(tx, address),
+        );
+
+        setTxVerification({
+          complete: result.transactions.length > 0,
+          message:
+            result.transactions.length > 0
+              ? `✓ Found ${result.transactions.length} transactions via GoldRush API`
               : "No transactions found",
         });
       }
@@ -316,7 +380,7 @@ export default function Home() {
             <div className="p-6 bg-white dark:bg-slate-800 rounded-lg shadow-sm border border-slate-200 dark:border-slate-700">
               <h3 className="font-semibold text-lg mb-2">1. Select Chain</h3>
               <p className="text-sm text-slate-600 dark:text-slate-400">
-                Choose between Osmosis, Babylon, and more chains coming soon
+                Choose between Osmosis, Babylon, NEAR, Celo, and Fantom
               </p>
             </div>
             <div className="p-6 bg-white dark:bg-slate-800 rounded-lg shadow-sm border border-slate-200 dark:border-slate-700">

@@ -44,9 +44,10 @@ export function WalletInput({
 
     // Validate address format based on selected chain
     if (!chainConfig.addressRegex.test(address.trim())) {
-      setError(
-        `Invalid ${chainConfig.displayName} address. Should start with "${chainConfig.addressPrefix}"`,
-      );
+      const errorMsg = chainConfig.addressPrefix
+        ? `Invalid ${chainConfig.displayName} address. Should start with "${chainConfig.addressPrefix}"`
+        : `Invalid ${chainConfig.displayName} address format. Please check the example below.`;
+      setError(errorMsg);
       return;
     }
 
