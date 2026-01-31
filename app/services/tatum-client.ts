@@ -4,111 +4,158 @@ import {
   TransactionType,
   ChainId,
 } from "../types";
-import { getChainConfig } from "../config/chains";
 
 /**
- * Tatum API client for EVM chains (Celo, Fantom)
- * This provides indexed transaction history - works reliably unlike LCD endpoints
+ * Blockscout/Etherscan-style API client for EVM chains
+ * This provides FULL indexed transaction history with proper pagination
  */
 
-const TATUM_API_KEY = "t-697d4031ace70350f2245030-4a6be09c40b84989bb00c1c8";
+interface ExplorerConfig {
+  baseUrl: string;
+  name: string;
+  nativeSymbol: string;
+}
 
-interface TatumTransaction {
-  chain: string;
+const EXPLORER_CONFIGS: Record<string, ExplorerConfig> = {
+  celo: {
+    baseUrl: "https://explorer.celo.org/mainnet/api",
+    name: "Celo Explorer",
+    nativeSymbol: "CELO",
+  },
+  fantom: {
+    // Using Blockscout for Fantom Opera
+    baseUrl: "https://explorer.fantom.network/api",
+    name: "Fantom Explorer",
+    nativeSymbol: "FTM",
+  },
+};
+
+interface ExplorerTransaction {
   hash: string;
-  address: string;
-  blockNumber: number;
-  transactionIndex: number;
-  transactionType: string;
-  transactionSubtype: string;
-  amount: string;
-  timestamp: number;
-  tokenAddress?: string;
-  counterAddress?: string;
+  blockNumber: string;
+  timeStamp: string;
+  from: string;
+  to: string;
+  value: string;
+  gas: string;
+  gasUsed: string;
+  gasPrice: string;
+  isError: string;
+  txreceipt_status: string;
+  input: string;
+  contractAddress?: string;
+  methodId?: string;
 }
 
 /**
- * Fetch ALL transactions from Tatum for EVM chains
+ * Fetch ALL transactions from Blockscout/Etherscan-style API
+ * Uses offset pagination to get complete history
  */
 export async function fetchAllTransactionsClientSide(
   chainId: ChainId,
   address: string,
   onProgress?: (count: number) => void,
 ): Promise<{ transactions: ChainTransaction[]; metadata: any }> {
-  console.log(`[Tatum ${chainId}] Starting fetch for ${address}`);
-
-  const chainMap: Record<string, string> = {
-    celo: "celo-mainnet",
-    fantom: "fantom-mainnet",
-  };
-
-  const tatumChain = chainMap[chainId];
-  if (!tatumChain) {
-    throw new Error(`Chain ${chainId} not supported by Tatum`);
+  const config = EXPLORER_CONFIGS[chainId];
+  if (!config) {
+    throw new Error(`Chain ${chainId} not supported by explorer API`);
   }
 
+  console.log(`[${config.name}] Starting fetch for ${address}`);
+
   const allTransactions: ChainTransaction[] = [];
-  let offset = 0;
-  const pageSize = 50;
+  let page = 1;
+  const pageSize = 100; // Max allowed by most Etherscan-style APIs
   let hasMore = true;
+  let totalPages = 0;
 
   while (hasMore) {
     try {
-      const url = `https://api.tatum.io/v4/data/transactions?chain=${tatumChain}&addresses=${address}&pageSize=${pageSize}&offset=${offset}`;
+      const url = `${config.baseUrl}?module=account&action=txlist&address=${address}&page=${page}&offset=${pageSize}&sort=desc`;
+
+      console.log(`[${config.name}] Fetching page ${page}...`);
 
       const response = await fetch(url, {
         headers: {
-          "x-api-key": TATUM_API_KEY,
           Accept: "application/json",
         },
       });
 
       if (!response.ok) {
         const errorText = await response.text();
-        console.error(`[Tatum ${chainId}] Error:`, errorText);
+        console.error(`[${config.name}] HTTP Error:`, errorText);
+        // Don't break, try to continue
+        if (allTransactions.length === 0) {
+          throw new Error(
+            `Failed to fetch from ${config.name}: ${response.status}`,
+          );
+        }
         break;
       }
 
       const data = await response.json();
-      const txs: TatumTransaction[] = data.result || [];
 
-      if (txs.length === 0) {
+      // Check for API error
+      if (data.status === "0" && data.message !== "No transactions found") {
+        console.error(`[${config.name}] API Error:`, data.message, data.result);
+        if (allTransactions.length === 0) {
+          throw new Error(
+            `${config.name} API error: ${data.result || data.message}`,
+          );
+        }
+        break;
+      }
+
+      const txs: ExplorerTransaction[] = data.result || [];
+
+      if (txs.length === 0 || data.status === "0") {
         hasMore = false;
+        console.log(`[${config.name}] No more transactions on page ${page}`);
         break;
       }
 
       // Convert to ChainTransaction format
       for (const tx of txs) {
+        const isReceive = tx.to.toLowerCase() === address.toLowerCase();
+
         const converted: ChainTransaction = {
           hash: tx.hash,
-          height: String(tx.blockNumber),
-          timestamp: new Date(tx.timestamp * 1000).toISOString(),
-          code: 0,
+          height: tx.blockNumber,
+          timestamp: new Date(parseInt(tx.timeStamp) * 1000).toISOString(),
+          code: tx.isError === "1" ? 1 : 0,
           chain: chainId,
           tx: {
             body: {
               messages: [
                 {
-                  "@type": `/cosmos.bank.v1beta1.Msg${tx.transactionSubtype === "incoming" ? "Receive" : "Send"}`,
-                  from_address:
-                    tx.transactionSubtype === "incoming"
-                      ? tx.counterAddress || ""
-                      : address,
-                  to_address:
-                    tx.transactionSubtype === "incoming"
-                      ? address
-                      : tx.counterAddress || "",
+                  "@type": `/cosmos.bank.v1beta1.Msg${isReceive ? "Receive" : "Send"}`,
+                  from_address: tx.from,
+                  to_address: tx.to,
                   amount: [
                     {
-                      amount: tx.amount,
-                      denom: tx.tokenAddress || "native",
+                      amount: tx.value,
+                      denom: "native",
                     },
                   ],
                 },
               ],
-              memo: "",
+              memo:
+                tx.input && tx.input !== "0x"
+                  ? `Method: ${tx.methodId || "unknown"}`
+                  : "",
             },
-            auth_info: { fee: { amount: [] } },
+            auth_info: {
+              fee: {
+                amount: [
+                  {
+                    amount: String(
+                      BigInt(tx.gasUsed || "0") * BigInt(tx.gasPrice || "0"),
+                    ),
+                    denom: "native",
+                  },
+                ],
+              },
+            },
           },
         };
         allTransactions.push(converted);
@@ -119,16 +166,29 @@ export async function fetchAllTransactionsClientSide(
       }
 
       console.log(
-        `[Tatum ${chainId}] Fetched ${allTransactions.length} transactions...`,
+        `[${config.name}] Page ${page}: +${txs.length} | Total: ${allTransactions.length}`,
       );
 
+      // Continue if we got a full page
       hasMore = txs.length === pageSize;
-      offset += pageSize;
+      page++;
+      totalPages++;
 
-      // Rate limiting
-      await new Promise((resolve) => setTimeout(resolve, 100));
+      // Rate limiting - be nice to free APIs
+      await new Promise((resolve) => setTimeout(resolve, 200));
+
+      // Safety limit - 100 pages = 10,000 transactions
+      if (page > 100) {
+        console.warn(
+          `[${config.name}] Hit safety limit of 10,000 transactions`,
+        );
+        break;
+      }
     } catch (error) {
-      console.error(`[Tatum ${chainId}] Fetch error:`, error);
+      console.error(`[${config.name}] Fetch error:`, error);
+      if (allTransactions.length === 0) {
+        throw error;
+      }
       break;
     }
   }
@@ -149,7 +209,7 @@ export async function fetchAllTransactionsClientSide(
       : null;
 
   console.log(
-    `[Tatum ${chainId}] FINAL: ${allTransactions.length} transactions`,
+    `[${config.name}] COMPLETE: ${allTransactions.length} transactions over ${totalPages} pages`,
   );
 
   return {
@@ -158,9 +218,10 @@ export async function fetchAllTransactionsClientSide(
       address,
       chain: chainId,
       totalFetched: allTransactions.length,
+      totalPages,
       firstTransactionDate: firstDate?.toISOString(),
       lastTransactionDate: lastDate?.toISOString(),
-      dataSource: "Tatum API v4",
+      dataSource: config.name,
     },
   };
 }
@@ -175,12 +236,15 @@ export function parseTransaction(
 ): ParsedTransaction {
   const messages = tx.tx?.body?.messages || [];
   const message = messages[0];
+  const config = EXPLORER_CONFIGS[tx.chain];
 
   let type: TransactionType = "unknown";
   let from = "";
   let to = "";
   let amount = "";
-  let currency = "";
+  let currency = config?.nativeSymbol || "ETH";
+  let fee = "";
+  let feeCurrency = currency;
 
   if (message) {
     const msgType = message["@type"] || "";
@@ -200,27 +264,23 @@ export function parseTransaction(
         ? message.amount
         : [message.amount];
       if (amountArr.length > 0) {
-        // Convert from wei for EVM chains
+        // Convert from wei (10^18) for EVM chains
         const rawAmount = amountArr[0].amount;
-        const denom = amountArr[0].denom;
-
-        if (denom === "native" || denom === "") {
-          // Native token - divide by 10^18
+        if (rawAmount && rawAmount !== "0") {
           const num = parseFloat(rawAmount) / 1e18;
           amount = num.toFixed(6);
-          currency =
-            tx.chain === "celo"
-              ? "CELO"
-              : tx.chain === "fantom"
-                ? "FTM"
-                : "ETH";
         } else {
-          // Token - might be different decimals
-          amount = rawAmount;
-          currency = "TOKEN";
+          amount = "0";
         }
       }
     }
+  }
+
+  // Extract fee
+  const feeAmount = tx.tx?.auth_info?.fee?.amount?.[0];
+  if (feeAmount && feeAmount.amount && feeAmount.amount !== "0") {
+    const feeNum = parseFloat(feeAmount.amount) / 1e18;
+    fee = feeNum.toFixed(8);
   }
 
   return {
@@ -232,10 +292,10 @@ export function parseTransaction(
     to,
     amount,
     currency,
-    fee: "",
-    feeCurrency: "",
+    fee,
+    feeCurrency,
     memo: tx.tx?.body?.memo || "",
-    status: "success",
+    status: tx.code === 0 ? "success" : "failed",
     chain: tx.chain,
   };
 }
