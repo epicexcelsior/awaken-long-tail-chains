@@ -1,4 +1,5 @@
 import { Metadata } from 'next';
+import { Suspense } from 'react';
 import TransactionsClient from './TransactionsClient';
 
 // Chain configurations - must match CHAIN_CONFIGS
@@ -27,5 +28,9 @@ export function generateMetadata({ params }: { params: { chain: string } }): Met
 }
 
 export default function TransactionsPage({ params }: { params: { chain: string } }) {
-  return <TransactionsClient chainId={params.chain} />;
+  return (
+    <Suspense fallback={<div className="min-h-screen bg-[#1a1a1a] text-white flex items-center justify-center">Loading...</div>}>
+      <TransactionsClient chainId={params.chain} />
+    </Suspense>
+  );
 }

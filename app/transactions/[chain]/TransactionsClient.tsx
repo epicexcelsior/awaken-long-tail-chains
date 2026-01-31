@@ -1,7 +1,8 @@
 'use client';
 
-import { useState } from 'react';
+import { useState, useEffect } from 'react';
 import Link from 'next/link';
+import { useSearchParams } from 'next/navigation';
 import { ArrowLeft, Download, Loader2 } from 'lucide-react';
 import {
   fetchAllTransactionsClientSide as fetchCeloTransactions,
@@ -98,6 +99,7 @@ interface TransactionsClientProps {
 }
 
 export default function TransactionsClient({ chainId }: TransactionsClientProps) {
+  const searchParams = useSearchParams();
   const [address, setAddress] = useState('');
   const [isLoading, setIsLoading] = useState(false);
   const [transactions, setTransactions] = useState<ParsedTransaction[]>([]);
@@ -105,6 +107,14 @@ export default function TransactionsClient({ chainId }: TransactionsClientProps)
   const [metadata, setMetadata] = useState<any>(null);
   
   const chain = chains.find(c => c.id === chainId);
+
+  // Read address from URL query params
+  useEffect(() => {
+    const addressFromUrl = searchParams.get('address');
+    if (addressFromUrl) {
+      setAddress(addressFromUrl);
+    }
+  }, [searchParams]);
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
